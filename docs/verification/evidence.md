@@ -56,3 +56,10 @@ Conservation checks require user-provided terms, signs, expected units and toler
 M0 verifies the Windows execution backend and a minimal COMSOL model's save/reload lifecycle. It does not prove that a physics interface is correctly configured or that all 37 task-plan acceptance criteria have passed.
 
 M1 and M2 evidence is tracked separately in STATUS.md.
+
+
+## Error diagnostics
+
+The Worker writes the original exception message and full Python traceback to worker_result.json and diagnostic_report.json. COMSOL Model.problems() records remain present in their original form; an additional heuristic classification suggests likely areas to inspect.
+
+Categories are advisory only. The classifier does not replace, rewrite or suppress the original COMSOL message, and unknown messages remain unclassified. It does not apply corrective changes or infer scientific modifications from an error string.

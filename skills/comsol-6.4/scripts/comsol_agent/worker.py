@@ -14,6 +14,7 @@ from .io_utils import atomic_write_json
 from .manifest import load_and_validate
 from .executor import ProfileExecutor
 from .report import build_execution_report, write_report
+from .diagnostics import classify_exception, classify_problem_records
 
 
 MODEL_STRUCTURE_METHODS = (
@@ -116,6 +117,7 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
         # original Java handles during the checkpoint reload test.
         live_evidence = executor.collect_live_gate_evidence()
         pre_solve_problems = executor.collect_comsol_problems()
+        pre_solve_problem_diagnostics = classify_problem_records(pre_solve_problems)
         diagnostics_check = {
             "name": "COMSOL model diagnostics are empty",
             "passed": len(pre_solve_problems) == 0,
@@ -161,6 +163,7 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
                 if conservation is not None:
                     atomic_write_json(output_dir / "conservation_report.json", conservation)
                 post_solve_problems = executor.collect_comsol_problems()
+                post_solve_problem_diagnostics = classify_problem_records(post_solve_problems)
                 solved_model_path = (output_dir / "solved_model.mph").resolve()
                 if solved_model_path.exists():
                     raise RuntimeError(f"Refusing to overwrite solved model: {solved_model_path}")
@@ -214,11 +217,15 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             "source_integrity": source_integrity,
             "pre_solve_gate_report": gate_report,
             "pre_solve_comsol_problems": pre_solve_problems,
+            "pre_solve_problem_diagnostics": pre_solve_problem_diagnostics,
             "output_evidence": output_evidence,
             "image_exports": image_exports,
             "benchmark": benchmark,
             "conservation": conservation,
             "post_solve_comsol_problems": post_solve_problems,
+            "post_solve_problem_diagnostics": (
+                post_solve_problem_diagnostics if manifest["study"].get("run", False) else []
+            ),
             "solved_model_path": str(solved_model_path) if solved_model_path else None,
             "solved_model_reload": solved_reload,
             "server_pid": session.server_pid,
@@ -240,11 +247,15 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             "source_integrity": source_integrity,
             "gate_report": gate_report,
             "pre_solve_comsol_problems": pre_solve_problems,
+            "pre_solve_problem_diagnostics": pre_solve_problem_diagnostics,
             "output_evidence": output_evidence,
             "image_exports": image_exports,
             "benchmark": benchmark,
             "conservation": conservation,
             "post_solve_comsol_problems": post_solve_problems,
+            "post_solve_problem_diagnostics": (
+                post_solve_problem_diagnostics if manifest["study"].get("run", False) else []
+            ),
             "solved_model_path": str(solved_model_path) if solved_model_path else None,
             "solved_model_reload": solved_reload,
             "server_pid": session.server_pid,
@@ -409,12 +420,16 @@ def main() -> int:
             "PROFILE_PROBE_BLOCKED"
         } or str(result.get("status", "")).startswith("NUMERICAL_SUCCESS_") else 2
     except Exception as exc:
+        original_traceback = traceback.format_exc()
+        diagnostic = classify_exception(exc, original_traceback)
         result = {
             "status": "FAIL",
             "error_type": type(exc).__name__,
             "error": str(exc),
-            "traceback": traceback.format_exc()
+            "traceback": original_traceback,
+            "diagnostic": diagnostic
         }
+        atomic_write_json(out / "diagnostic_report.json", diagnostic)
         atomic_write_json(result_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 2

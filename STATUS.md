@@ -29,6 +29,7 @@ The user's COMSOL installation, license, existing login file and machine-specifi
 - [x] Mandatory solver auto-sequence action before custom solver settings.
 - [x] Strict Pre-Solve gate evaluation and COMSOL diagnostic blocking.
 - [x] Separate API, numerical, physical-validation and reproduction states.
+- [x] Raw exception/COMSOL problem preservation with heuristic error categories and conservative next-check guidance.
 - [x] Result quantity extraction, CSV export and profile-declared image-export path.
 - [x] Explicit user-defined conservation-balance evaluator.
 - [x] Mesh/time convergence child-manifest derivation and controller orchestration.
@@ -108,7 +109,7 @@ No physics profile is shipped as validated; the Worker correctly refuses to run 
 - [ ] Real COMSOL 6.4 transient time-step sensitivity run.
 - [ ] Physics-specific conservation checks validated on a physical case.
 - [ ] Real patch-mode integration test against a source MPH.
-- [ ] Full COMSOL-specific error regression and AC-35/AC-36 evidence.
+- [ ] Full COMSOL-specific error regression and AC-36 evidence; heuristic diagnostic categories still require review against real COMSOL 6.4 failure logs.
 
 ## Technical constraints and known limitations
 
