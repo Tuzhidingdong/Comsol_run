@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local machine configuration and secrets
+.env
+.env.*
+!.env.example
+config.local.toml
+config.local.yaml
+config.local.json
+*.secret
+*.credentials
+login.properties
+*.lic
+*.license
+COMSOL64_HOME.txt
+
+# Local caches and runtime state
+.cache/
+cache/
+knowledge_base/
+api_cache/
+*.lock
+*.pid
+*.port
+*.portfile
+*.sock
+
+# COMSOL model files and temporary backup files
+*.mph
+*.mphbin
+*.mphbak
+*.mph~
+*.mph.lock
+*.tmp
+
+# Generated runtime directories
+runs/
+artifacts/
+outputs/
+results/
+temp/
+tmp/
+
+# Windows
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# IDE
+.vscode/
+.idea/

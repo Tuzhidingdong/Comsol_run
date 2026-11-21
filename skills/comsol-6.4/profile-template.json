@@ -1,0 +1,23 @@
+{
+  "profile_id": "replace-with-profile-id",
+  "comsol_version": "6.4",
+  "description": "Copy this template and add only API calls proven against COMSOL 6.4.",
+  "verification": {
+    "state": "discovered",
+    "test_id": null,
+    "evidence_files": [],
+    "limitations": ["Not production-validated"]
+  },
+  "actions": [],
+  "gate_probes": [
+    {
+      "gate": "A",
+      "name": "replace-with-live-geometry-check",
+      "target": "geometry:comp1/geom1",
+      "method_chain": [{"method": "getNEntities", "args": [2]}],
+      "operator": "positive"
+    }
+  ],
+  "result_evaluations": [],
+  "physical_validation_probes": []
+}

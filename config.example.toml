@@ -1,0 +1,22 @@
+[comsol]
+version = "6.4"
+home = ""
+cores = 2
+server_start_timeout_seconds = 120
+# The Worker uses MPh's automatic first-run login only when no v64
+# login.properties exists. Existing login files are opened in never/reset mode.
+preserve_existing_login = true
+
+[execution]
+worker_timeout_seconds = 3600
+graceful_cancel_seconds = 15
+max_parallel_workers = 1
+require_windows_job_object = true
+
+[validation]
+require_explicit_units = true
+block_on_unresolved_unit_warnings = true
+require_pre_solve_evidence = true
+
+[paths]
+runs_dir = "runs"

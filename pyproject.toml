@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comsol-agent-skill"
+version = "0.1.0"
+description = "COMSOL 6.4 Agent Skill with isolated execution and scientific validation"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "mph>=1.4.0,<1.5",
+  "jsonschema>=4.21,<5",
+  "pint>=0.24,<1",
+  "psutil>=5.9,<8"
+]
+
+[project.optional-dependencies]
+windows = [
+  "pywin32>=306; platform_system == 'Windows'"
+]
+dev = [
+  "pytest>=8,<9",
+  "pytest-cov>=5,<7"
+]
+
+[project.scripts]
+comsol-agent = "comsol_agent.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "skills/comsol-6.4/scripts"}
+
+[tool.setuptools.packages.find]
+where = ["skills/comsol-6.4/scripts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.coverage.run]
+branch = true
+source = ["comsol_agent"]
