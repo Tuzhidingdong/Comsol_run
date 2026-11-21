@@ -14,3 +14,4 @@ def test_job_object_kills_worker_and_descendant(tmp_path: Path):
     result = verify_job_object_process_tree(tmp_path / "job-probe", timeout_seconds=2)
     assert result["status"] == "PASS"
     assert result["all_owned_processes_terminated"] is True
+    assert result["unrelated_process_survived_job_termination"] is True

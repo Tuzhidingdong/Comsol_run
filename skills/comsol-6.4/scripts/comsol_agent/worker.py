@@ -207,6 +207,7 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             "manifest_validation": validation,
             "mode": manifest["metadata"]["mode"],
             "profile_id": manifest["metadata"]["profile_id"],
+            "licensed_modules": getattr(executor, "licensed_modules", []),
             "completed_actions": build["completed_actions"],
             "pre_solve_checkpoint": build["checkpoint"],
             "pre_solve_reload": pre_solve_reload,

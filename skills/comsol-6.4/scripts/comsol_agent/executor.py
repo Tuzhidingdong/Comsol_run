@@ -194,6 +194,19 @@ class ProfileExecutor:
 
     def run(self) -> dict[str, Any]:
         self.profile = load_profile(self.manifest["metadata"]["profile_id"], require_validated=True)
+        required_modules = [str(value) for value in self.profile.get("required_modules", [])]
+        available_modules = [str(value) for value in self.client.modules()]
+        available_module_keys = {value.casefold() for value in available_modules}
+        missing_modules = [
+            module for module in required_modules
+            if module.casefold() not in available_module_keys
+        ]
+        if missing_modules:
+            raise ExecutionError(
+                "The active COMSOL license does not report required profile modules: "
+                + ", ".join(missing_modules)
+            )
+        self.licensed_modules = available_modules
         actions = self.profile.get("actions")
         if not isinstance(actions, list) or not actions:
             raise ExecutionError("Validated profile has no action sequence")

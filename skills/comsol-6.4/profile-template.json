@@ -2,6 +2,7 @@
   "profile_id": "replace-with-profile-id",
   "comsol_version": "6.4",
   "description": "Copy this template and add only API calls proven against COMSOL 6.4.",
+  "required_modules": [],
   "verification": {
     "state": "discovered",
     "test_id": null,

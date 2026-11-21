@@ -194,28 +194,63 @@ def verify_job_object_process_tree(output_dir: str | Path, timeout_seconds: floa
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     pid_file = out / "job_tree_pids.json"
-    result = run_managed_worker(
-        [sys.executable, "-m", "comsol_agent.process_probe", "--pid-file", str(pid_file)],
-        cwd=Path.cwd(),
-        timeout_seconds=timeout_seconds,
-        graceful_cancel_seconds=0.25,
-        send_ctrl_break=False
+
+    # A sentinel is intentionally started by the Controller, outside the Job
+    # Object under test. It must survive termination of the Worker job.
+    sentinel = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(600)"],
+        cwd=str(out)
     )
-    if not pid_file.is_file():
-        return {"status": "FAIL", "reason": "Probe Worker did not write child process identities", "managed_result": asdict(result)}
-    import json
-    import psutil
-    identities = json.loads(pid_file.read_text(encoding="utf-8"))
-    time.sleep(0.5)
-    remaining = [int(process_id) for process_id in identities.values() if psutil.pid_exists(int(process_id))]
-    passed = (
-        result.timed_out and result.job_object_used and result.hard_termination_used
-        and result.cleanup_verified and not remaining
-    )
-    return {
-        "status": "PASS" if passed else "FAIL",
-        "managed_result": asdict(result),
-        "process_ids": identities,
-        "remaining_process_ids": remaining,
-        "all_owned_processes_terminated": not remaining
-    }
+    sentinel_survived = False
+    result = None
+    identities: dict[str, int] = {}
+    remaining: list[int] = []
+    try:
+        result = run_managed_worker(
+            [sys.executable, "-m", "comsol_agent.process_probe", "--pid-file", str(pid_file)],
+            cwd=Path.cwd(),
+            timeout_seconds=timeout_seconds,
+            graceful_cancel_seconds=0.25,
+            send_ctrl_break=False
+        )
+        if not pid_file.is_file():
+            return {
+                "status": "FAIL",
+                "reason": "Probe Worker did not write child process identities",
+                "managed_result": asdict(result)
+            }
+        import json
+        import psutil
+        identities = json.loads(pid_file.read_text(encoding="utf-8"))
+        time.sleep(0.5)
+        remaining = [
+            int(process_id)
+            for process_id in identities.values()
+            if psutil.pid_exists(int(process_id))
+        ]
+        sentinel_survived = sentinel.poll() is None and psutil.pid_exists(sentinel.pid)
+        passed = (
+            result.timed_out
+            and result.job_object_used
+            and result.hard_termination_used
+            and result.cleanup_verified
+            and not remaining
+            and sentinel_survived
+        )
+        return {
+            "status": "PASS" if passed else "FAIL",
+            "managed_result": asdict(result),
+            "process_ids": identities,
+            "remaining_process_ids": remaining,
+            "all_owned_processes_terminated": not remaining,
+            "unrelated_sentinel_pid": sentinel.pid,
+            "unrelated_process_survived_job_termination": sentinel_survived
+        }
+    finally:
+        if sentinel.poll() is None:
+            sentinel.terminate()
+            try:
+                sentinel.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                sentinel.kill()
+                sentinel.wait(timeout=3)
