@@ -24,6 +24,7 @@ The launcher creates a repository-local .venv, runs the unit tests and environme
     python -m comsol_agent.cli profiles
     python -m comsol_agent.cli validate examples/manifests/manifest-template.json
     python -m comsol_agent.cli m0 --output runs/m0
+    python -m comsol_agent.cli profile-probe <draft-manifest.json> --output runs/profile-probes
     python -m comsol_agent.cli run <approved-manifest.json> --output runs
 
 Mesh convergence:
@@ -43,7 +44,7 @@ Time-step sensitivity:
 - Task Controller: immutable task workspaces, retry/resume, timeout and aggregation.
 - Worker: one Manifest, one managed COMSOL session, one solve, one output directory.
 - Backend: MPh Server and Client with explicit COMSOL 6.4 targeting.
-- Profiles: version-scoped API recipes. Only validated profiles can be executed.
+- Profiles: version-scoped API recipes. Discovered profiles can only use the non-solving profile-probe command; production runs require validated profiles.
 - Validation: units, live Gate A–H evidence, COMSOL diagnostics, analytic baseline, conservation, numerical result export and convergence checks.
 
 ## Safety invariants
@@ -54,6 +55,7 @@ Time-step sensitivity:
 - Do not silently invent scientific assumptions, boundary conditions or material data.
 - Missing live gate evidence blocks solving.
 - Profile actions cannot directly invoke Study.solve; the Worker controls solve after all gates pass.
+- profile-probe never solves and never changes verification state; it only writes evidence and suggests the next promotion state.
 - A numerical solve is not proof of physical correctness or reproducibility.
 - GCI requires measured physical mesh sizes, not refinement multipliers.
 - On Windows, managed execution fails closed if Job Object containment is unavailable. Set metadata.execution_limits.max_memory_gb to enforce a hard per-task Job Object memory ceiling.

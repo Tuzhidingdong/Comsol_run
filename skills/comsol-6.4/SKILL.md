@@ -40,6 +40,7 @@ From the repository root:
 
 - python -m comsol_agent.cli doctor
 - python -m comsol_agent.cli validate <manifest.json>
+- python -m comsol_agent.cli profile-probe <draft-manifest.json> --output runs/profile-probes
 - python -m comsol_agent.cli run <manifest.json> --output runs
 - python -m comsol_agent.cli m0 --output runs/m0
 
@@ -47,8 +48,9 @@ On Windows, managed runs require Job Object process containment. If it is unavai
 
 ## Modeling rules
 
-- Use only a COMSOL 6.4 API Profile whose status and evidence are valid for the installed version.
-- Unknown Java API types and property names require a minimal probe.
+- Production runs require a COMSOL 6.4 API Profile in validated state.
+- A discovered profile may be used only with profile-probe, which must never execute a Study solve or modify the profile's verification state.
+- Unknown Java API types and property names require a minimal profile-probe before promotion.
 - Do not persist naked entity indices across geometry regeneration.
 - Prefer semantic/named selections; use spatial selection only with post-geometry checks.
 - Require explicit units for dimensional quantities.

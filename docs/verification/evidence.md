@@ -20,7 +20,9 @@ Profile states:
 3. integration_tested
 4. validated
 
-A production profile requires a COMSOL 6.4 test ID and evidence file paths. It must also have live probes for all required Gate A–H conditions. The presence of a profile JSON file is not evidence that its API calls work.
+A discovered profile can be run only through the non-solving profile-probe command. It requires build mode and study.run=false, runs restricted construction actions and read-only live Gate A-H probes, checks COMSOL diagnostics, and verifies a saved/reloaded MPH checkpoint. It does not call Study.solve and does not modify the profile verification state. A passing report suggests probe_passed; promotion remains an explicit reviewed action.
+
+A production profile requires a COMSOL 6.4 test ID and evidence file paths. It must also have live probes for all required Gate A-H conditions. The presence of a profile JSON file is not evidence that its API calls work.
 
 MPh documents Windows Server and Client integration, but its published successful test range currently stops at COMSOL 6.3. COMSOL 6.4 must be accepted through the local M0 probe before a profile can be promoted.
 

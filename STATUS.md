@@ -24,6 +24,7 @@ The user's COMSOL installation, license, existing login file and machine-specifi
 - [x] Build execution path and protected patch-copy path.
 - [x] Patch source SHA-256 checks; source MPH is never the write target.
 - [x] Profile verification states; unvalidated profiles cannot run as production profiles.
+- [x] Non-solving profile-probe path to collect live API/Gate A-H/save-reload evidence before profile promotion.
 - [x] Restricted profile action vocabulary and read-only live Gate A-H probes.
 - [x] Mandatory solver auto-sequence action before custom solver settings.
 - [x] Strict Pre-Solve gate evaluation and COMSOL diagnostic blocking.
@@ -40,6 +41,7 @@ The user's COMSOL installation, license, existing login file and machine-specifi
 - [ ] Actual Windows Job Object cleanup proved on the user's PC.
 - [ ] Actual MPH save/reload proved on the user's PC.
 - [ ] At least one physics profile passed against COMSOL 6.4 and an independent scientific benchmark.
+- [ ] profile-probe executed successfully against the user's COMSOL 6.4 installation.
 - [ ] AC-01 through AC-37 all accepted.
 
 ## M0 — Feasibility Spike

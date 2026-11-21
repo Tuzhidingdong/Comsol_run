@@ -143,6 +143,88 @@ class TaskController:
         atomic_write_json(task_dir / "controller_result.json", result)
         return result
 
+    def run_profile_probe(
+        self,
+        manifest_path: str | Path,
+        output_root: str | Path,
+        timeout_seconds: int | None = None
+    ) -> dict[str, Any]:
+        source = Path(manifest_path).expanduser().resolve()
+        manifest, validation = load_and_validate(source)
+        metadata = manifest["metadata"]
+        if metadata["mode"] != "build":
+            raise ControllerError("Profile probe supports build mode only")
+        if manifest["study"].get("run", False):
+            raise ControllerError("Profile probe is non-solving; set study.run=false")
+
+        root = Path(output_root).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        task_id = safe_task_id(metadata["task_id"])
+        probe_id = safe_task_id(
+            f"probe-{validation['manifest_sha256'][:16]}-{int(time.time() * 1000)}"
+        )
+        task_dir = self._create_task_dir(root, probe_id)
+        copied_manifest = task_dir / "manifest.json"
+        shutil.copy2(source, copied_manifest)
+        copied_data = json.loads(copied_manifest.read_text(encoding="utf-8"))
+        copied_sha = canonical_json_sha256(copied_data)
+        copy_integrity = copied_sha == validation["manifest_sha256"]
+        if not copy_integrity:
+            raise ControllerError("Manifest changed during profile-probe copy; refusing to launch Worker")
+
+        limit = timeout_seconds or metadata.get("execution_limits", {}).get("timeout_seconds", 1800)
+        command = [
+            sys.executable,
+            "-m",
+            "comsol_agent.worker",
+            "--profile-probe",
+            "--manifest",
+            str(copied_manifest),
+            "--output-dir",
+            str(task_dir)
+        ]
+        managed = run_managed_worker(
+            command,
+            cwd=self.repository_root,
+            timeout_seconds=float(limit),
+            graceful_cancel_seconds=float(
+                metadata.get("execution_limits", {}).get("graceful_cancel_seconds", 15)
+            ),
+            cancel_file=task_dir / "cancel.request",
+            max_memory_gb=metadata.get("execution_limits", {}).get("max_memory_gb")
+        )
+        worker_path = task_dir / "worker_result.json"
+        worker_result = (
+            json.loads(worker_path.read_text(encoding="utf-8"))
+            if worker_path.is_file() else None
+        )
+        worker_status = worker_result.get("status") if worker_result else None
+        managed_ok = (
+            managed.exit_code == 0
+            and not managed.timed_out
+            and managed.cleanup_verified
+        )
+        if worker_status == "PROFILE_PROBE_PASSED":
+            run_status = "PASS" if managed_ok else "FAIL"
+        elif worker_status == "PROFILE_PROBE_BLOCKED":
+            run_status = "BLOCKED" if managed_ok else "FAIL"
+        else:
+            run_status = "FAIL"
+
+        result = {
+            "task_id": task_id,
+            "profile_probe_id": probe_id,
+            "manifest_sha256": validation["manifest_sha256"],
+            "copied_manifest_sha256": copied_sha,
+            "manifest_copy_integrity": copy_integrity,
+            "output_dir": str(task_dir),
+            "managed_process": asdict(managed),
+            "worker_result": worker_result,
+            "status": run_status
+        }
+        atomic_write_json(task_dir / "controller_result.json", result)
+        return result
+
     def run_convergence_plan(
         self, plan_dir: str | Path, metric_name: str = "target",
         timeout_seconds: int | None = None

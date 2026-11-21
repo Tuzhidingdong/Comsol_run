@@ -71,10 +71,18 @@ class ProfileExecutor:
         "create_plot_group", "create_plot_feature"
     }
 
-    def __init__(self, client: Any, manifest: dict[str, Any], output_dir: str | Path):
+    def __init__(
+        self,
+        client: Any,
+        manifest: dict[str, Any],
+        output_dir: str | Path,
+        *,
+        require_validated_profile: bool = True
+    ):
         self.client = client
         self.manifest = manifest
         self.output_dir = Path(output_dir).resolve()
+        self.require_validated_profile = bool(require_validated_profile)
         self.nodes: dict[str, Any] = {}
         self.model = None
         self.profile: dict[str, Any] | None = None
@@ -111,6 +119,15 @@ class ProfileExecutor:
         if isinstance(value, list):
             return [self._resolve(child) for child in value]
         return value
+
+    @staticmethod
+    def _safe_model_tag(task_id: str) -> str:
+        import re
+
+        tag = re.sub(r"[^A-Za-z0-9_]", "_", str(task_id))
+        if not tag or not tag[0].isalpha():
+            tag = "model_" + tag
+        return tag[:31]
 
     def _target(self, name: str) -> Any:
         if name == "model":
@@ -193,7 +210,10 @@ class ProfileExecutor:
         return result
 
     def run(self) -> dict[str, Any]:
-        self.profile = load_profile(self.manifest["metadata"]["profile_id"], require_validated=True)
+        self.profile = load_profile(
+            self.manifest["metadata"]["profile_id"],
+            require_validated=self.require_validated_profile
+        )
         required_modules = [str(value) for value in self.profile.get("required_modules", [])]
         available_modules = [str(value) for value in self.client.modules()]
         available_module_keys = {value.casefold() for value in available_modules}
@@ -216,7 +236,9 @@ class ProfileExecutor:
         if self.manifest["metadata"]["mode"] == "patch":
             self._load_patch_source()
         else:
-            self.model = self.client.create(self.manifest["metadata"]["task_id"][:31])
+            self.model = self.client.create(
+                self._safe_model_tag(self.manifest["metadata"]["task_id"])
+            )
         completed = []
         for index, action in enumerate(actions):
             if "for_each" in action:

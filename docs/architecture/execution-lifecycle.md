@@ -39,8 +39,8 @@ All paths passed to COMSOL model save/load/evaluation/export operations are reso
 
 ## Profile execution and safety
 
-Profiles are version-scoped and must be in validated state before production execution. They contain a restricted construction action sequence plus read-only live pre-solve probes.
+Production execution requires a profile in validated state. A discovered profile can be used only with profile-probe, which is restricted to model construction, read-only live probes, diagnostics and checkpoint save/reload.
 
-The profile action vocabulary does not contain a solve action. The Worker evaluates live Gate A–H evidence and only then invokes the MPh model solve method.
+The profile action vocabulary does not contain a solve action. The profile probe explicitly refuses a Manifest with study.run=true; the production Worker invokes Study.solve only after evaluating all live pre-solve gates.
 
 Gate probes can call only the read-only method allowlist in ProfileExecutor. Missing, failing or unsupported probes block solving.

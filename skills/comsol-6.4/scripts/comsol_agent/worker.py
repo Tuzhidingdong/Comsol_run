@@ -254,10 +254,111 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
         session.close()
 
 
+def run_profile_probe(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
+    """Probe a discovered COMSOL 6.4 API profile without executing a Study solve."""
+    manifest, validation = load_and_validate(manifest_path)
+    if manifest["metadata"]["mode"] != "build":
+        raise RuntimeError("Profile probe supports build mode only")
+    if manifest["study"].get("run", False):
+        raise RuntimeError("Profile probe cannot solve; set study.run=false")
+
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    session = ComsolSession(
+        cores=int(manifest["metadata"].get("execution_limits", {}).get("cores", 1)),
+        version="6.4",
+        startup_timeout=120
+    )
+    result: dict[str, Any] | None = None
+    try:
+        session.start()
+        executor = ProfileExecutor(
+            session.client,
+            manifest,
+            output_dir,
+            require_validated_profile=False
+        )
+        build = executor.run()
+
+        # Capture live evidence before releasing the current model handle.
+        live_evidence = executor.collect_live_gate_evidence()
+        problems = executor.collect_comsol_problems()
+        live_evidence.setdefault("E", {"checks": []})["checks"].append({
+            "name": "COMSOL model diagnostics are empty",
+            "passed": len(problems) == 0,
+            "problem_count": len(problems),
+            "problems": problems,
+            "source": "MPh Model.problems()"
+        })
+        gate_report = evaluate_pre_solve_gates(
+            manifest["validation"]["required_gates"],
+            live_evidence
+        )
+        executor.model, reload_evidence = _verify_saved_model_reload(
+            session.client,
+            executor.model,
+            Path(build["checkpoint"])
+        )
+
+        verification = executor.profile.get("verification", {})
+        current_state = verification.get("state", "discovered")
+        probe_passed = bool(gate_report["solve_allowed"] and not problems)
+        evidence = {
+            "manifest_validation": validation,
+            "profile_id": executor.profile["profile_id"],
+            "profile_verification_state_before": current_state,
+            "profile_verification_state_after": current_state,
+            "suggested_next_state": (
+                "probe_passed"
+                if probe_passed and current_state == "discovered"
+                else current_state
+            ),
+            "licensed_modules": getattr(executor, "licensed_modules", []),
+            "completed_actions": build["completed_actions"],
+            "pre_solve_checkpoint": build["checkpoint"],
+            "save_reload": reload_evidence,
+            "live_gate_evidence": live_evidence,
+            "gate_report": gate_report,
+            "comsol_problems": problems,
+            "server_pid": session.server_pid,
+            "server_port": session.server_port,
+            "solve_executed": False,
+            "numerical_success": False,
+            "physical_validation": None,
+            "reproduction_success": None
+        }
+        result = {
+            "status": "PROFILE_PROBE_PASSED" if probe_passed else "PROFILE_PROBE_BLOCKED",
+            "task_id": manifest["metadata"]["task_id"],
+            "api_success": True,
+            "numerical_success": False,
+            "physical_validation": None,
+            "reproduction_success": None,
+            "evidence": evidence
+        }
+    finally:
+        cleanup = session.close()
+        if result is not None:
+            result["evidence"]["cleanup"] = cleanup
+            cleanup_verified = (
+                isinstance(cleanup, dict)
+                and cleanup.get("cleanup_requested") is True
+                and not cleanup.get("cleanup_errors")
+            )
+            result["evidence"]["cleanup_verified"] = cleanup_verified
+            if not cleanup_verified:
+                result["status"] = "PROFILE_PROBE_FAILED"
+            atomic_write_json(output_dir / "profile_probe_report.json", result)
+    if result is None:
+        raise RuntimeError("Profile probe did not produce an execution result")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--m0", action="store_true")
     parser.add_argument("--manifest")
+    parser.add_argument("--profile-probe", action="store_true")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     out = Path(args.output_dir).resolve()
@@ -274,7 +375,18 @@ def main() -> int:
                 status="M0_SMOKE_PASS", evidence=evidence
             )
             write_report(out, report)
-        elif args.manifest:
+        elif args.profile_probe and args.manifest:
+            result = run_profile_probe(Path(args.manifest).resolve(), out)
+            report = build_execution_report(
+                task_id=result["task_id"], job_id=result["task_id"], output_dir=out,
+                api_success=result.get("api_success", False),
+                numerical_success=False,
+                physical_validation=None,
+                reproduction_success=None,
+                status=result["status"], evidence=result.get("evidence", result)
+            )
+            write_report(out, report)
+        elif args.manifest and not args.profile_probe:
             result = run_manifest(Path(args.manifest).resolve(), out)
             report = build_execution_report(
                 task_id=result["task_id"], job_id=result["task_id"], output_dir=out,
@@ -286,10 +398,16 @@ def main() -> int:
             )
             write_report(out, report)
         else:
-            raise ValueError("Specify --m0 or --manifest")
+            raise ValueError("Specify --m0, --manifest, or --profile-probe --manifest")
         atomic_write_json(result_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
-        return 0 if result.get("status") != "FAIL" else 2
+        return 0 if result.get("status") in {
+            "PASS",
+            "BUILD_ONLY_PRE_SOLVE_GATES_REPORTED",
+            "PRE_SOLVE_BLOCKED",
+            "PROFILE_PROBE_PASSED",
+            "PROFILE_PROBE_BLOCKED"
+        } or str(result.get("status", "")).startswith("NUMERICAL_SUCCESS_") else 2
     except Exception as exc:
         result = {
             "status": "FAIL",

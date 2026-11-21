@@ -34,6 +34,14 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--output", default="runs")
     run.add_argument("--timeout", type=int)
 
+    profile_probe = sub.add_parser(
+        "profile-probe",
+        help="Probe a discovered COMSOL 6.4 profile without executing a Study solve"
+    )
+    profile_probe.add_argument("manifest")
+    profile_probe.add_argument("--output", default="runs/profile-probes")
+    profile_probe.add_argument("--timeout", type=int)
+
     sub.add_parser("profiles", help="List available COMSOL 6.4 API profiles")
 
     plan = sub.add_parser("convergence-plan", help="Derive independent child Manifests for a convergence audit")
@@ -68,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["status"] == "PASS" else 2
         if args.command == "run":
             result = TaskController().run_manifest(args.manifest, args.output, args.timeout)
+            _print(result)
+            return 0 if result["status"] == "PASS" else 2
+        if args.command == "profile-probe":
+            result = TaskController().run_profile_probe(args.manifest, args.output, args.timeout)
             _print(result)
             return 0 if result["status"] == "PASS" else 2
         if args.command == "profiles":
