@@ -38,6 +38,7 @@ def write_report(output_dir: str | Path, report: dict[str, Any]) -> None:
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     atomic_write_json(out / "execution_report.json", report)
+    evidence = report.get("evidence", {})
     lines = [
         "# COMSOL execution report",
         "",
@@ -53,12 +54,7 @@ def write_report(output_dir: str | Path, report: dict[str, Any]) -> None:
         "",
         "## Evidence",
         "",
-        json_block(report.get("evidence", {})),
+        __import__("json").dumps(evidence, indent=2, ensure_ascii=False, default=str),
         ""
     ]
     atomic_write_text(out / "verification_report.md", "\n".join(lines))
-
-
-def json_block(value: Any) -> str:
-    import json
-    return "    " + json.dumps(value, indent=2, ensure_ascii=False).replace("\n", "\n    ")

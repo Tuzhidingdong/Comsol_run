@@ -1,72 +1,68 @@
 # COMSOL Agent Skill — COMSOL 6.4
 
-A Windows-first, agent-oriented COMSOL automation framework with a reviewed task manifest, isolated Worker execution, live pre-solve gates and scientific result reporting.
+A Windows-first framework for an Agent to turn an approved scientific model specification into a controlled COMSOL build/patch execution, pre-solve evidence, numerical outputs and validation report.
 
-Target: COMSOL Multiphysics 6.4, Windows 64-bit, Python 3.10–3.13, MPh 1.4.x.
+Target environment: COMSOL Multiphysics 6.4, Windows 64-bit, Python 3.10–3.13, MPh 1.4.x.
 
-> Current delivery status is recorded in STATUS.md. Repository code and unit tests do not prove local COMSOL compatibility. Run the local acceptance procedure before using this against research models.
+**Important:** MPh's published integration tests currently list COMSOL through 6.3. This repository targets 6.4, but does not claim the COMSOL 6.4 integration has passed until the local M0 acceptance probe succeeds. No physics profile is shipped as production-validated.
 
-## Quick start
+## First step
 
-1. Install COMSOL Multiphysics 6.4 and confirm that the local license permits the physics interface you intend to use.
+1. Install COMSOL Multiphysics 6.4 and ensure your license includes the physics interface you intend to use.
 2. Install 64-bit Python 3.10–3.13.
 3. Clone this repository.
 4. Double-click RUN_ACCEPTANCE.bat.
-5. Inspect runs/acceptance/acceptance_report.md and the JSON evidence.
-6. Only after M0 passes, add or select a COMSOL 6.4 physics profile that has been probed and scientifically validated.
+5. Inspect runs/acceptance/acceptance_report.md.
+6. After M0 passes, add a COMSOL 6.4 physics profile and scientific benchmark, then promote it through discovered → probe_passed → integration_tested → validated.
 
-The acceptance launcher creates a local .venv, installs the package and runs offline unit tests before asking permission to start COMSOL Server. It does not modify COMSOL installation files or existing COMSOL login configuration.
+The launcher creates a repository-local .venv, runs the unit tests and environment diagnostics, then asks before starting the local COMSOL Server. It does not install COMSOL or modify the installation directory. An existing %USERPROFILE%\.comsol\v64\login.properties is preserved and checked.
 
 ## Commands
 
     python -m pip install -e ".[dev,windows]"
     python -m comsol_agent.cli doctor
+    python -m comsol_agent.cli profiles
     python -m comsol_agent.cli validate examples/manifests/manifest-template.json
     python -m comsol_agent.cli m0 --output runs/m0
     python -m comsol_agent.cli run <approved-manifest.json> --output runs
 
-Create and execute an independent mesh convergence plan:
+Mesh convergence:
 
     python -m comsol_agent.cli convergence-plan <approved-manifest.json> --kind mesh --levels 1.0 0.7 0.49 --output runs/convergence
-    python -m comsol_agent.cli convergence-run runs/convergence
+    python -m comsol_agent.cli convergence-run runs/convergence --metric target
     python -m comsol_agent.cli convergence-aggregate runs/convergence --metric target
 
-On Windows, managed execution requires pywin32 Job Object containment. If Job Object setup fails, the controller fails closed rather than silently falling back to unsafe process launch.
+Time-step sensitivity:
+
+    python -m comsol_agent.cli convergence-plan <approved-manifest.json> --kind time --levels 1.0 0.5 0.25 --output runs/time-audit
+    python -m comsol_agent.cli convergence-run runs/time-audit --metric target
 
 ## Architecture
 
-- Installable Skill: skills/comsol-6.4/
-- Python package: skills/comsol-6.4/scripts/comsol_agent/
-- Controller: validates Manifests, creates immutable task workspaces and supervises Worker processes.
-- Worker: performs one task Manifest and one designated solve in one independent output directory.
-- COMSOL backend: uses MPh 1.4 Server and Client APIs with explicit COMSOL 6.4 selection.
-- Validation: typed quantities, live read-only pre-solve probes, four-level success reporting and optional convergence aggregation.
+- Skill: skills/comsol-6.4/
+- Task Controller: immutable task workspaces, retry/resume, timeout and aggregation.
+- Worker: one Manifest, one managed COMSOL session, one solve, one output directory.
+- Backend: MPh Server and Client with explicit COMSOL 6.4 targeting.
+- Profiles: version-scoped API recipes. Only validated profiles can be executed.
+- Validation: units, live Gate A–H evidence, COMSOL diagnostics, analytic baseline, conservation, numerical result export and convergence checks.
 
-## Important operating rules
+## Safety invariants
 
-- Never overwrite a source MPH file.
-- Use absolute paths for all COMSOL file operations.
-- Do not persist raw entity indices across geometry rebuilds.
-- Do not assume a physics API is supported until its COMSOL 6.4 profile has passed an actual probe and benchmark.
-- A solver success does not establish physical correctness.
-- Long or expensive runs require an approved resource budget.
-- Worker timeout cleanup is not called successful until every recorded Job Object process has exited.
-- No secret, COMSOL login file, license file, local API cache or simulation result belongs in Git.
-- A profile may not call Study.run as an ordinary action; the Worker enforces live Gate A-H evidence first.
+- Never overwrite a source MPH file; patch mode works on a verified copy.
+- All paths passed to COMSOL are absolute.
+- Do not persist raw geometry entity indices through geometry rebuilds.
+- Do not silently invent scientific assumptions, boundary conditions or material data.
+- Missing live gate evidence blocks solving.
+- Profile actions cannot directly invoke Study.solve; the Worker controls solve after all gates pass.
+- A numerical solve is not proof of physical correctness or reproducibility.
+- GCI requires measured physical mesh sizes, not refinement multipliers.
+- On Windows, managed execution fails closed if Job Object containment is unavailable.
+- No login file, credentials, license file, local configuration or generated model/result belongs in Git.
 
-## Local acceptance outputs
+## Local acceptance evidence
 
-The acceptance launcher writes to runs/acceptance/:
+RUN_ACCEPTANCE.bat writes to runs/acceptance/. It records Python/COMSOL discovery, dependency tests, Windows Job Object descendant cleanup, COMSOL Server connection, licensed modules, MPH save/reload structure and Server shutdown.
 
-- environment report
-- Python dependency report
-- unit test report
-- Job Object process-tree test
-- COMSOL Server startup/connection report
-- minimal MPH save/reload evidence
-- process cleanup evidence
-- consolidated acceptance report
+## Authoritative requirements
 
-## Frozen requirements
-
-The authoritative requirements are in TASK_PLAN.md, Revision 1.2. Progress and unresolved local evidence are in STATUS.md.
+TASK_PLAN.md Revision 1.2 is the frozen development contract. STATUS.md distinguishes implemented code from evidence still required on the actual COMSOL 6.4 machine.

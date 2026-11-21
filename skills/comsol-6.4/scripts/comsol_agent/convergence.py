@@ -121,10 +121,49 @@ def compute_gci(
     }
 
 
+def compute_time_sensitivity(
+    values: list[float],
+    time_step_scales: list[float],
+    relative_tolerance: float
+) -> dict[str, Any]:
+    if len(values) < 2 or len(values) != len(time_step_scales):
+        raise ConvergenceError("Time-step sensitivity requires at least two paired levels")
+    paired = sorted(
+        [(float(scale), float(value)) for scale, value in zip(time_step_scales, values)],
+        reverse=True
+    )
+    if any(not math.isfinite(scale) or not math.isfinite(value) or scale <= 0 for scale, value in paired):
+        raise ConvergenceError("Time-step scales and values must be finite, with positive scales")
+    scales = [item[0] for item in paired]
+    ordered_values = [item[1] for item in paired]
+    if any(scales[index] <= scales[index + 1] for index in range(len(scales) - 1)):
+        raise ConvergenceError("Time-step scales must be unique")
+    changes = []
+    for index in range(len(ordered_values) - 1):
+        coarse = ordered_values[index]
+        fine = ordered_values[index + 1]
+        relative = abs(coarse - fine) / max(abs(fine), 1e-30)
+        changes.append({
+            "coarser_scale": scales[index],
+            "finer_scale": scales[index + 1],
+            "coarser_value": coarse,
+            "finer_value": fine,
+            "relative_change": relative,
+            "passed": relative <= relative_tolerance
+        })
+    return {
+        "status": "PASS" if all(item["passed"] for item in changes) else "NOT_CONVERGED",
+        "relative_tolerance": relative_tolerance,
+        "successive_changes": changes,
+        "assumption": "Same model, physical inputs and target observable; only time-step scale is varied."
+    }
+
+
 def aggregate_scalar_metrics(parent_dir: str | Path, metric_name: str) -> dict[str, Any]:
     root = Path(parent_dir).expanduser().resolve()
     plan_path = root / "child_tasks.json"
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    parent_manifest = json.loads((root / "parent_manifest.json").read_text(encoding="utf-8"))
     records = []
     for child in plan["children"]:
         output_dir = child.get("output_dir")
@@ -146,12 +185,24 @@ def aggregate_scalar_metrics(parent_dir: str | Path, metric_name: str) -> dict[s
         status = json.loads(status_path.read_text(encoding="utf-8")).get("status")
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
         value = metrics.get("target_values", {}).get(metric_name)
+        mesh_h = metrics.get("mesh_characteristic_size")
         records.append({
             "task_id": child["task_id"], "status": status, "value": value,
-            "refinement_value": child.get("refinement_value"), "output_dir": str(child_out)
+            "refinement_value": child.get("refinement_value"),
+            "mesh_characteristic_size": mesh_h,
+            "output_dir": str(child_out)
         })
-    acceptable_statuses = {"NUMERICAL_SUCCESS_VALIDATION_PENDING", "NUMERICAL_SUCCESS_REPRODUCTION_CHECKED"}
-    complete = all(item.get("status") in acceptable_statuses and isinstance(item.get("value"), (int, float)) for item in records)
+    acceptable_statuses = {
+        "NUMERICAL_SUCCESS_VALIDATION_PENDING",
+        "NUMERICAL_SUCCESS_REPRODUCTION_CHECKED",
+        "NUMERICAL_SUCCESS_REPRODUCTION_FAILED",
+        "NUMERICAL_SUCCESS_PHYSICAL_CHECK_FAILED"
+    }
+    complete = all(
+        item.get("status") in acceptable_statuses and isinstance(item.get("value"), (int, float))
+        for item in records
+    )
+    records.sort(key=lambda item: float(item.get("refinement_value") or 0), reverse=True)
     result: dict[str, Any] = {
         "parent_task_id": plan["parent_task_id"],
         "kind": plan["kind"],
@@ -161,21 +212,41 @@ def aggregate_scalar_metrics(parent_dir: str | Path, metric_name: str) -> dict[s
     }
     if complete and plan["kind"] == "mesh" and len(records) == 3:
         try:
-            result["gci"] = compute_gci(
+            if any(
+                isinstance(item.get("mesh_characteristic_size"), bool)
+                or not isinstance(item.get("mesh_characteristic_size"), (int, float))
+                or not math.isfinite(float(item["mesh_characteristic_size"]))
+                or float(item["mesh_characteristic_size"]) <= 0
+                for item in records
+            ):
+                raise ConvergenceError(
+                    "Actual mesh characteristic size h was not extracted for every child; "
+                    "refinement scale alone is not a physical mesh-size measurement."
+                )
+            gci = compute_gci(
                 [float(item["value"]) for item in records],
-                [float(item["refinement_value"]) for item in records]
+                [float(item["mesh_characteristic_size"]) for item in records]
             )
+            tolerance = parent_manifest.get("validation", {}).get("convergence", {}).get("mesh_gci_fine_tolerance_percent")
+            if tolerance is not None:
+                gci["acceptance_tolerance_percent"] = float(tolerance)
+                gci["accepted"] = gci["gci_fine_percent"] <= float(tolerance)
+            result["gci"] = gci
         except (ConvergenceError, KeyError, TypeError, ValueError) as exc:
             result["gci"] = {"status": "NOT_APPLICABLE", "reason": str(exc)}
     elif complete and plan["kind"] == "time":
-        values = [float(item["value"]) for item in records]
-        reference = values[-1]
-        result["time_step_sensitivity"] = {
-            "coarse_to_fine_relative_changes": [
-                abs(value - reference) / max(abs(reference), 1e-30)
-                for value in values[:-1]
-            ],
-            "note": "Interpret using the declared time-step refinement order and task-specific tolerance."
-        }
+        tolerance = parent_manifest.get("validation", {}).get("convergence", {}).get("time_step_relative_tolerance")
+        if tolerance is None:
+            result["time_step_sensitivity"] = {
+                "status": "TOLERANCE_NOT_CONFIGURED",
+                "values": [item["value"] for item in records],
+                "time_step_scales": [item["refinement_value"] for item in records]
+            }
+        else:
+            result["time_step_sensitivity"] = compute_time_sensitivity(
+                [float(item["value"]) for item in records],
+                [float(item["refinement_value"]) for item in records],
+                float(tolerance)
+            )
     atomic_write_json(root / "aggregation_report.json", result)
     return result

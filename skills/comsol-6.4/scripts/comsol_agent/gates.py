@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+
 GATE_NAMES = {
     "A": "Geometry",
     "B": "Selections",
     "C": "Materials",
     "D": "Physics",
-    "E": "Expressions and units",
+    "E": "Expressions, units and COMSOL diagnostics",
     "F": "Study and solver sequence",
     "G": "Mesh",
     "H": "DOF and computational budget",

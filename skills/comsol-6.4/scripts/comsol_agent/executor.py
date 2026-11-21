@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 import json
 import math
+import shutil
 from pathlib import Path
 from typing import Any
 
+from .io_utils import sha256_file
 from .profiles import load_profile
 from .units import to_comsol_expression
 
@@ -18,7 +20,7 @@ READ_ONLY_METHODS = {
     "isEmpty", "isComplete", "getNumElem", "getMinQuality", "getAverageQuality",
     "getNEntities", "entities", "tags", "hasProduct", "isBuilt", "getType",
     "getString", "getStringArray", "getDouble", "getDoubleArray", "getInt",
-    "getIntArray", "getBoolean", "getValue"
+    "getIntArray", "getBoolean", "getValue", "xmeshInfo", "nDofs", "getNDOF"
 }
 
 
@@ -57,15 +59,16 @@ def _compare(actual: Any, operator: str, expected: Any = None) -> bool:
 
 
 class ProfileExecutor:
-    """Execute a restricted, profile-declared COMSOL Java action sequence."""
+    """Execute a restricted, profile-declared COMSOL Java API action sequence."""
 
     ALLOWED = {
         "set_parameter", "create_component", "create_geometry",
-        "create_geometry_feature", "set_node_property", "run_geometry",
-        "create_selection", "create_material", "set_material_property",
-        "create_physics", "create_physics_feature", "create_mesh",
-        "create_mesh_feature", "set_mesh_auto_size", "run_mesh",
-        "create_study", "create_study_step", "create_auto_sequences"
+        "create_geometry_feature", "bind_existing_node", "set_node_property",
+        "run_geometry", "create_selection", "create_material",
+        "set_material_property", "create_physics", "create_physics_feature",
+        "create_mesh", "create_mesh_feature", "set_mesh_auto_size", "run_mesh",
+        "create_study", "create_study_step", "create_auto_sequences",
+        "create_plot_group", "create_plot_feature"
     }
 
     def __init__(self, client: Any, manifest: dict[str, Any], output_dir: str | Path):
@@ -76,6 +79,10 @@ class ProfileExecutor:
         self.model = None
         self.profile: dict[str, Any] | None = None
         self._loop_item: Any = None
+        self.solver_sequence_created = False
+        self.source_model: Path | None = None
+        self.source_model_sha256: str | None = None
+        self.source_copy: Path | None = None
 
     @staticmethod
     def _path_get(root: Any, dotted: str) -> Any:
@@ -114,6 +121,77 @@ class ProfileExecutor:
             raise ExecutionError(f"Unknown model-node handle: {name}")
         return self.nodes[name]
 
+    def _bind_existing_node(self, args: dict[str, Any]) -> None:
+        m = self.model.java
+        node_type = args["node_type"]
+        tag = args["tag"]
+        component = args.get("component")
+        parent_tag = args.get("parent_tag")
+        if node_type == "component":
+            node = m.component(tag)
+        elif node_type == "geometry":
+            node = m.component(component).geom(tag)
+        elif node_type == "geometry_feature":
+            node = m.component(component).geom(parent_tag).feature(tag)
+        elif node_type == "selection":
+            node = m.component(component).selection(tag)
+        elif node_type == "material":
+            node = m.component(component).material(tag)
+        elif node_type == "physics":
+            node = m.component(component).physics(tag)
+        elif node_type == "physics_feature":
+            node = m.component(component).physics(parent_tag).feature(tag)
+        elif node_type == "mesh":
+            node = m.component(component).mesh(tag)
+        elif node_type == "mesh_feature":
+            node = m.component(component).mesh(parent_tag).feature(tag)
+        elif node_type == "study":
+            node = m.study(tag)
+        elif node_type == "solver":
+            node = m.sol(tag)
+        elif node_type == "plot_group":
+            node = m.result(tag)
+        elif node_type == "plot_feature":
+            node = m.result(parent_tag).feature(tag)
+        else:
+            raise ExecutionError(f"Unsupported existing-node type: {node_type}")
+        self.nodes[str(args["handle"])] = node
+
+    def _load_patch_source(self) -> None:
+        source = Path(self.manifest["metadata"]["source_model"]).expanduser().resolve()
+        if not source.is_file() or source.suffix.lower() != ".mph":
+            raise ExecutionError(f"Patch source must be an existing .mph file: {source}")
+        self.source_model = source
+        self.source_model_sha256 = sha256_file(source)
+        copy_path = (self.output_dir / "source_model_copy.mph").resolve()
+        if copy_path.exists():
+            raise ExecutionError(f"Refusing to overwrite source model copy: {copy_path}")
+        shutil.copy2(source, copy_path)
+        if sha256_file(copy_path) != self.source_model_sha256:
+            raise ExecutionError("Patch source copy failed SHA-256 integrity check")
+        self.source_copy = copy_path
+        self.model = self.client.load(str(copy_path))
+        existing_solver_tags = list(self.model.java.sol().tags())
+        if existing_solver_tags:
+            self.solver_sequence_created = True
+            for solver_tag in existing_solver_tags:
+                self.nodes[f"solver:{solver_tag}"] = self.model.java.sol(solver_tag)
+
+    def verify_source_unchanged(self) -> dict[str, Any] | None:
+        if self.source_model is None:
+            return None
+        current_hash = sha256_file(self.source_model)
+        result = {
+            "source_model": str(self.source_model),
+            "source_sha256_before": self.source_model_sha256,
+            "source_sha256_after": current_hash,
+            "source_unchanged": current_hash == self.source_model_sha256,
+            "working_copy": str(self.source_copy) if self.source_copy else None
+        }
+        if not result["source_unchanged"]:
+            raise ExecutionError("Original patch source MPH changed during execution")
+        return result
+
     def run(self) -> dict[str, Any]:
         self.profile = load_profile(self.manifest["metadata"]["profile_id"], require_validated=True)
         actions = self.profile.get("actions")
@@ -122,9 +200,10 @@ class ProfileExecutor:
         invalid = [item.get("op") for item in actions if item.get("op") not in self.ALLOWED]
         if invalid:
             raise ExecutionError(f"Profile contains unsupported or unsafe actions: {invalid}")
-        if self.manifest["metadata"]["mode"] != "build":
-            raise ExecutionError("Patch mode is not enabled in this implementation")
-        self.model = self.client.create(self.manifest["metadata"]["task_id"][:31])
+        if self.manifest["metadata"]["mode"] == "patch":
+            self._load_patch_source()
+        else:
+            self.model = self.client.create(self.manifest["metadata"]["task_id"][:31])
         completed = []
         for index, action in enumerate(actions):
             if "for_each" in action:
@@ -145,7 +224,12 @@ class ProfileExecutor:
         self.model.save(str(checkpoint))
         if not checkpoint.is_file() or checkpoint.stat().st_size == 0:
             raise ExecutionError("Pre-solve MPH checkpoint was not created or is empty")
-        return {"model": self.model, "profile": self.profile, "completed_actions": completed, "checkpoint": str(checkpoint)}
+        source_integrity = self.verify_source_unchanged()
+        return {
+            "model": self.model, "profile": self.profile,
+            "completed_actions": completed, "checkpoint": str(checkpoint),
+            "source_integrity": source_integrity
+        }
 
     def _execute(self, op: str, args: dict[str, Any]) -> None:
         m = self.model.java
@@ -154,6 +238,8 @@ class ProfileExecutor:
                 m.param().set(args["name"], args["value"], args["description"])
             else:
                 m.param().set(args["name"], args["value"])
+        elif op == "bind_existing_node":
+            self._bind_existing_node(args)
         elif op == "create_component":
             tag = args["tag"]
             m.component().create(tag, bool(args.get("create_geometry", True)))
@@ -168,7 +254,10 @@ class ProfileExecutor:
             for key, value in args.get("properties", {}).items():
                 node.set(key, value)
         elif op == "set_node_property":
-            self._target(args["target"]).set(args["property"], args["value"])
+            target_name = str(args["target"])
+            if target_name.startswith("solver:") and not self.solver_sequence_created:
+                raise ExecutionError("Default solver sequence must be created before custom solver settings")
+            self._target(target_name).set(args["property"], args["value"])
         elif op == "run_geometry":
             self._target(args["target"]).run()
         elif op == "create_selection":
@@ -220,7 +309,21 @@ class ProfileExecutor:
             parent = self._target(args["study_handle"])
             self.nodes[f"study_step:{args['tag']}"] = parent.create(args["tag"], args["api_type"])
         elif op == "create_auto_sequences":
-            self._target(args["study_handle"]).createAutoSequences("all")
+            study = self._target(args["study_handle"])
+            study.createAutoSequences("all")
+            self.solver_sequence_created = True
+            for solver_tag in list(m.sol().tags()):
+                self.nodes[f"solver:{solver_tag}"] = m.sol(solver_tag)
+        elif op == "create_plot_group":
+            tag = args["tag"]
+            node = m.result().create(tag, args["api_type"])
+            self.nodes[f"plot_group:{tag}"] = node
+        elif op == "create_plot_feature":
+            parent = self._target(args["plot_group_handle"])
+            node = parent.feature().create(args["tag"], args["api_type"])
+            for key, value in args.get("properties", {}).items():
+                node.set(key, value)
+            self.nodes[f"plot_feature:{args['tag']}"] = node
         else:
             raise ExecutionError(f"Unimplemented operation: {op}")
 
@@ -248,10 +351,14 @@ class ProfileExecutor:
                         raise ExecutionError(f"Probe attribute {method_name!r} is not callable")
                     actual = method(*step.get("args", []))
                 actual_plain = _plain(actual)
-                passed = _compare(actual_plain, str(probe["operator"]), probe.get("expected"))
+                expected = (
+                    self._path_get(self.manifest, str(probe["expected_ref"]))
+                    if "expected_ref" in probe else probe.get("expected")
+                )
+                passed = _compare(actual_plain, str(probe["operator"]), expected)
                 check = {
                     "name": name, "passed": bool(passed), "actual": actual_plain,
-                    "operator": probe["operator"], "expected": probe.get("expected"),
+                    "operator": probe["operator"], "expected": expected,
                     "source": "live_comsol_6.4_api_probe"
                 }
             except Exception as exc:
@@ -262,6 +369,11 @@ class ProfileExecutor:
                 }
             grouped.setdefault(gate, []).append(check)
         return {gate: {"checks": checks} for gate, checks in grouped.items()}
+
+    def collect_comsol_problems(self) -> list[Any]:
+        if self.model is None:
+            raise ExecutionError("No active model")
+        return _plain(self.model.problems()) or []
 
     def execute_study(self) -> None:
         self.model.solve(self.manifest["study"]["tag"])
@@ -287,12 +399,41 @@ class ProfileExecutor:
             value = item["value"]
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 scalar_rows.append((name, item["expression"], value, item.get("expected_unit") or ""))
-        if scalar_rows:
+        if self.manifest.get("outputs", {}).get("export_csv", True) and scalar_rows:
             with results_path.with_suffix(".csv").open("w", newline="", encoding="utf-8") as stream:
                 writer = csv.writer(stream)
                 writer.writerow(["name", "expression", "value", "unit"])
                 writer.writerows(scalar_rows)
         return {"results": results, "results_json": str(results_path)}
+
+    def run_image_exports(self) -> list[dict[str, Any]]:
+        if not self.manifest.get("outputs", {}).get("export_images", False):
+            return []
+        exports = list((self.profile or {}).get("image_exports", []))
+        if not exports:
+            raise ExecutionError("Manifest requests image exports, but the validated profile declares no image_exports")
+        image_root = (self.output_dir / "results" / "images").resolve()
+        image_root.mkdir(parents=True, exist_ok=True)
+        completed = []
+        for item in exports:
+            tag = str(item["tag"])
+            filename = Path(str(item["filename"]))
+            path = filename.resolve() if filename.is_absolute() else (image_root / filename).resolve()
+            if image_root not in path.parents:
+                raise ExecutionError(f"Image export path escapes its task output directory: {path}")
+            if path.exists():
+                raise ExecutionError(f"Refusing to overwrite image export: {path}")
+            node = self.model.java.result().export().create(tag, str(item.get("api_type", "Image")))
+            node.set("filename", str(path))
+            if item.get("plotgroup"):
+                node.set("plotgroup", str(item["plotgroup"]))
+            for key, value in item.get("properties", {}).items():
+                node.set(key, self._resolve(value))
+            node.run()
+            if not path.is_file() or path.stat().st_size == 0:
+                raise ExecutionError(f"COMSOL image export did not create a non-empty file: {path}")
+            completed.append({"tag": tag, "path": str(path), "size_bytes": path.stat().st_size})
+        return completed
 
     def compare_benchmark(self, results: dict[str, Any]) -> dict[str, Any] | None:
         baseline = self.manifest.get("validation", {}).get("baseline", {})
@@ -316,3 +457,33 @@ class ProfileExecutor:
                 "relative_error": relative_error, "relative_tolerance": tolerance, "passed": passed
             })
         return {"passed": all(check["passed"] for check in checks), "checks": checks}
+
+    def evaluate_conservation_checks(self) -> dict[str, Any] | None:
+        checks = self.manifest.get("validation", {}).get("conservation_checks", [])
+        if not checks:
+            return None
+        results = []
+        for check in checks:
+            term_values = []
+            for term in check["terms"]:
+                expression = str(term["expression"])
+                scalar = _plain(self.model.evaluate(expression, term["expected_unit"]))
+                if not isinstance(scalar, (int, float)) or not math.isfinite(float(scalar)):
+                    raise ExecutionError(f"Conservation term {check['name']} returned non-finite/non-scalar data")
+                coefficient = float(term.get("coefficient", 1.0))
+                term_values.append({
+                    "expression": expression, "value": float(scalar),
+                    "coefficient": coefficient, "signed_value": coefficient * float(scalar),
+                    "unit": term["expected_unit"]
+                })
+            balance = sum(item["signed_value"] for item in term_values)
+            scale = sum(abs(item["signed_value"]) for item in term_values)
+            residual = abs(balance) / max(scale, 1e-30)
+            tolerance = float(check["relative_tolerance"])
+            results.append({
+                "name": check["name"], "balance": balance, "scale": scale,
+                "relative_residual": residual, "relative_tolerance": tolerance,
+                "passed": residual <= tolerance, "terms": term_values,
+                "interpretation": "Signs and control-volume terms are supplied by the user-approved Manifest."
+            })
+        return {"passed": all(item["passed"] for item in results), "checks": results}

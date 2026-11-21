@@ -29,9 +29,15 @@ class ManagedProcessResult:
 
 def _job_process_ids(win32job, job) -> list[int]:
     try:
-        return [int(pid) for pid in win32job.QueryInformationJobObject(
-            job, win32job.JobObjectBasicProcessIdList
-        )]
+        info = win32job.QueryInformationJobObject(job, win32job.JobObjectBasicProcessIdList)
+        if isinstance(info, dict):
+            values = info.get("ProcessIdList", [])
+        elif isinstance(info, (tuple, list)):
+            # PyWin32 releases may expose (assigned_count, list_capacity, pids).
+            values = info[-1] if info else []
+        else:
+            values = []
+        return [int(pid) for pid in values]
     except Exception:
         return []
 
@@ -77,15 +83,10 @@ def run_managed_worker(
         win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, limits)
 
         startup = win32process.STARTUPINFO()
-        startup.dwFlags |= win32con.STARTF_USESTDHANDLES
-        startup.hStdInput = win32api.GetStdHandle(win32con.STD_INPUT_HANDLE)
-        startup.hStdOutput = win32api.GetStdHandle(win32con.STD_OUTPUT_HANDLE)
-        startup.hStdError = win32api.GetStdHandle(win32con.STD_ERROR_HANDLE)
-
         flags = win32con.CREATE_SUSPENDED | win32con.CREATE_NEW_PROCESS_GROUP | win32con.CREATE_UNICODE_ENVIRONMENT
         command_line = subprocess.list2cmdline([str(part) for part in command])
         process_handle, thread_handle, pid, _ = win32process.CreateProcess(
-            None, command_line, None, None, True, flags, env,
+            None, command_line, None, None, False, flags, env,
             str(Path(cwd).resolve()), startup
         )
 
@@ -206,7 +207,7 @@ def verify_job_object_process_tree(output_dir: str | Path, timeout_seconds: floa
     import psutil
     identities = json.loads(pid_file.read_text(encoding="utf-8"))
     time.sleep(0.5)
-    remaining = [int(pid) for pid in identities.values() if psutil.pid_exists(int(pid))]
+    remaining = [int(process_id) for process_id in identities.values() if psutil.pid_exists(int(process_id))]
     passed = (
         result.timed_out and result.job_object_used and result.hard_termination_used
         and result.cleanup_verified and not remaining

@@ -1,0 +1,53 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "comsol_version": "6.4",
+    "mode": "build",
+    "task_id": "replace-with-task-id",
+    "profile_id": "REQUIRES_A_COMSOL_6_4_VALIDATED_PROFILE",
+    "execution_limits": {
+      "timeout_seconds": 1800,
+      "graceful_cancel_seconds": 15,
+      "cores": 2
+    }
+  },
+  "parameters": {
+    "length": {"value": 10, "unit": "mm"},
+    "diffusivity": {"value": 1e-9, "unit": "m^2/s"}
+  },
+  "geometry": {
+    "component_tag": "comp1",
+    "geometry_tag": "geom1",
+    "dimension": 1,
+    "features": []
+  },
+  "selections": [],
+  "materials": [],
+  "physics": [],
+  "mesh": {
+    "tag": "mesh1",
+    "component_tag": "comp1",
+    "geometry_tag": "geom1",
+    "profile_id": "REQUIRES_A_COMSOL_6_4_VALIDATED_PROFILE",
+    "auto_size": 4
+  },
+  "study": {
+    "tag": "std1",
+    "profile_id": "REQUIRES_A_COMSOL_6_4_VALIDATED_PROFILE",
+    "steps": [{"tag": "stat", "api_type": "Stationary"}],
+    "run": false
+  },
+  "outputs": {
+    "quantities": [],
+    "export_csv": true,
+    "export_images": true,
+    "save_model": true
+  },
+  "validation": {
+    "required_gates": ["A", "B", "C", "D", "E", "F", "G", "H"],
+    "target_observables": [],
+    "conservation_checks": [],
+    "convergence": {},
+    "baseline": {}
+  }
+}

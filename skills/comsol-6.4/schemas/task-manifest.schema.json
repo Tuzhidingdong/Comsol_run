@@ -189,8 +189,40 @@
           "items": {"enum": ["A", "B", "C", "D", "E", "F", "G", "H"]}
         },
         "target_observables": {"type": "array", "items": {"type": "object"}},
-        "conservation_checks": {"type": "array", "items": {"type": "object"}},
-        "convergence": {"type": "object"},
+        "conservation_checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "terms", "relative_tolerance"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "relative_tolerance": {"type": "number", "minimum": 0},
+              "terms": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["expression", "expected_unit"],
+                  "properties": {
+                    "expression": {"type": "string", "minLength": 1},
+                    "expected_unit": {"type": "string", "minLength": 1},
+                    "coefficient": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "convergence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mesh_gci_fine_tolerance_percent": {"type": "number", "minimum": 0},
+            "time_step_relative_tolerance": {"type": "number", "minimum": 0}
+          }
+        },
         "baseline": {
           "type": "object",
           "additionalProperties": {
@@ -212,20 +244,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["value", "unit"],
-      "properties": {
-        "value": {"type": "number"},
-        "unit": {"type": "string", "minLength": 1},
-        "expected_unit": {"type": "string"}
-      }
+      "properties": {"value": {"type": "number"}, "unit": {"type": "string", "minLength": 1}, "expected_unit": {"type": "string"}}
     },
     "expression": {
       "type": "object",
       "additionalProperties": false,
       "required": ["expression", "expected_unit"],
-      "properties": {
-        "expression": {"type": "string", "minLength": 1},
-        "expected_unit": {"type": "string", "minLength": 1}
-      }
+      "properties": {"expression": {"type": "string", "minLength": 1}, "expected_unit": {"type": "string", "minLength": 1}}
     },
     "quantityOrExpression": {"oneOf": [{"$ref": "#/$defs/quantity"}, {"$ref": "#/$defs/expression"}]}
   }

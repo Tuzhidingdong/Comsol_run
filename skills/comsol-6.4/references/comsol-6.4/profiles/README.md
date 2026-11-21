@@ -15,3 +15,10 @@ Promotion requirements:
 7. At runtime, every gate must produce live COMSOL evidence; missing probes are a blocking failure.
 
 The ProfileExecutor rejects profiles that are not in validated state. Profiles cannot invoke Study.run as an action. The Task Worker invokes Study.run only after evaluating all live pre-solve gates.
+
+
+## Mesh characteristic size for GCI
+
+For a mesh convergence audit, set the profile field mesh_characteristic_size_result to the name of one result evaluation that returns a finite positive scalar physical characteristic mesh size h with an explicit unit. The Worker records this measured h in metrics.json for each child run.
+
+A mesh refinement multiplier is only an input scale. It is not an actual mesh-size measurement and is never substituted for h in a GCI calculation. When h is absent for any child, aggregation records GCI as NOT_APPLICABLE with the reason.

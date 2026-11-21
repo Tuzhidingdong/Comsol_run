@@ -119,11 +119,16 @@ class TaskController:
         )
         worker_result_path = task_dir / "worker_result.json"
         worker_result = json.loads(worker_result_path.read_text(encoding="utf-8")) if worker_result_path.exists() else None
-        worker_ok = bool(worker_result and worker_result.get("status") in {
+        worker_status = worker_result.get("status") if worker_result else None
+        worker_ok = bool(worker_status in {
             "BUILD_ONLY_PRE_SOLVE_GATES_REPORTED",
+            "PRE_SOLVE_BLOCKED",
             "NUMERICAL_SUCCESS_VALIDATION_PENDING",
             "NUMERICAL_SUCCESS_REPRODUCTION_CHECKED"
-        })
+        } or (isinstance(worker_status, str) and worker_status.startswith("NUMERICAL_SUCCESS_")))
+        run_state = "BLOCKED" if worker_status == "PRE_SOLVE_BLOCKED" else (
+            "PASS" if managed.exit_code == 0 and not managed.timed_out and managed.cleanup_verified and worker_ok else "FAIL"
+        )
         result = {
             "task_id": task_id,
             "manifest_sha256": validation["manifest_sha256"],
@@ -132,7 +137,7 @@ class TaskController:
             "output_dir": str(task_dir),
             "managed_process": asdict(managed),
             "worker_result": worker_result,
-            "status": "PASS" if managed.exit_code == 0 and not managed.timed_out and managed.cleanup_verified and worker_ok else "FAIL"
+            "status": run_state
         }
         atomic_write_json(task_dir / "controller_result.json", result)
         return result

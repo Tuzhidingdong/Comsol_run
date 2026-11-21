@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from comsol_agent.executor import ProfileExecutor
-from comsol_agent.gates import evaluate_pre_solve_gates
 
 
 class ProbeNode:
@@ -54,10 +53,30 @@ def test_unknown_or_mutating_gate_method_fails_closed():
     ]
     evidence = make_executor(probes).collect_live_gate_evidence()
     assert evidence["A"]["checks"][0]["passed"] is False
-    assert "read-only allowlist" in evidence["A"]["checks"][0]["error"]
+    assert "read-only probe allowlist" in evidence["A"]["checks"][0]["error"]
+
+
+def test_gate_expected_reference_uses_manifest_values():
+    executor = ProfileExecutor(client=SimpleNamespace(java=object()), manifest={
+        "metadata": {"execution_limits": {"max_dofs": 1000}}
+    }, output_dir=".")
+    executor.model = SimpleNamespace(java=object())
+    executor.profile = {"gate_probes": [{
+        "gate": "H", "name": "dof-budget", "target": "solver:sol1",
+        "method_chain": [{"method": "nDofs"}],
+        "operator": "lte", "expected_ref": "metadata.execution_limits.max_dofs"
+    }]}
+    class DofNode:
+        def nDofs(self):
+            return 850
+    executor.nodes = {"solver:sol1": DofNode()}
+    evidence = executor.collect_live_gate_evidence()
+    assert evidence["H"]["checks"][0]["passed"] is True
+    assert evidence["H"]["checks"][0]["expected"] == 1000
 
 
 def test_missing_live_gate_probes_block_solve():
+    from comsol_agent.gates import evaluate_pre_solve_gates
     required = list("ABCDEFGH")
     evidence = make_executor([
         {"gate": "A", "name": "count", "target": "geometry:comp1/geom1",

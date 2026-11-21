@@ -73,3 +73,19 @@ def test_all_eight_pre_solve_gates_are_mandatory():
     manifest["validation"]["required_gates"] = ["A", "B"]
     with pytest.raises(ManifestError):
         validate_manifest(manifest)
+
+
+def test_conservation_terms_require_compatible_dimensions():
+    manifest = load_template()
+    manifest["validation"]["conservation_checks"] = [{
+        "name": "mass-balance",
+        "relative_tolerance": 0.01,
+        "terms": [
+            {"expression": "inflow", "expected_unit": "kg/s", "coefficient": 1},
+            {"expression": "outflow", "expected_unit": "kg/s", "coefficient": -1}
+        ]
+    }]
+    assert validate_manifest(manifest)["valid"] is True
+    manifest["validation"]["conservation_checks"][0]["terms"][1]["expected_unit"] = "W"
+    with pytest.raises(UnitValidationError, match="compatible dimensions"):
+        validate_manifest(manifest)

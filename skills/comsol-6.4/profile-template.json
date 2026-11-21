@@ -12,12 +12,36 @@
   "gate_probes": [
     {
       "gate": "A",
-      "name": "replace-with-live-geometry-check",
+      "name": "geometry-entity-count",
       "target": "geometry:comp1/geom1",
       "method_chain": [{"method": "getNEntities", "args": [2]}],
       "operator": "positive"
+    },
+    {
+      "gate": "G",
+      "name": "mesh-element-count",
+      "target": "mesh:mesh1",
+      "method_chain": [{"method": "getNumElem"}],
+      "operator": "positive"
+    },
+    {
+      "gate": "G",
+      "name": "minimum-mesh-quality",
+      "target": "mesh:mesh1",
+      "method_chain": [{"method": "getMinQuality"}],
+      "operator": "positive"
+    },
+    {
+      "gate": "H",
+      "name": "solver-dof-count",
+      "target": "solver:generated-solver-tag",
+      "method_chain": [{"method": "xmeshInfo"}, {"method": "nDofs"}],
+      "operator": "lte",
+      "expected_ref": "metadata.execution_limits.max_dofs"
     }
   ],
   "result_evaluations": [],
+  "mesh_characteristic_size_result": null,
+  "image_exports": [],
   "physical_validation_probes": []
 }

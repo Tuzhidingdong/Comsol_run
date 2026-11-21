@@ -57,6 +57,19 @@ def validate_expression(node: dict[str, Any], path: str = "expression") -> dict[
     return {"expected_unit": expected_unit, "dimensionality": str(expected.dimensionality)}
 
 
+def validate_compatible_units(units: list[str], path: str) -> str:
+    if not units:
+        raise UnitValidationError(f"{path}: at least one unit is required")
+    registry = _registry()
+    try:
+        dimensions = [registry.Unit(unit).dimensionality for unit in units]
+    except Exception as exc:
+        raise UnitValidationError(f"{path}: invalid unit in {units!r}: {exc}") from exc
+    if any(item != dimensions[0] for item in dimensions[1:]):
+        raise UnitValidationError(f"{path}: terms must have compatible dimensions; got {dimensions}")
+    return str(dimensions[0])
+
+
 def iter_typed_values(value: Any, path: str = "$") -> Iterator[tuple[str, dict[str, Any]]]:
     if isinstance(value, dict):
         if "value" in value and "unit" in value:
@@ -84,6 +97,20 @@ def validate_manifest_units(manifest: dict[str, Any]) -> list[dict[str, str]]:
             evidence.append({"path": path, **result})
         except UnitValidationError as exc:
             errors.append(str(exc))
+
+    for index, check in enumerate(manifest.get("validation", {}).get("conservation_checks", [])):
+        try:
+            dimensions = validate_compatible_units(
+                [str(term["expected_unit"]) for term in check["terms"]],
+                f"validation.conservation_checks[{index}].terms"
+            )
+            evidence.append({
+                "path": f"validation.conservation_checks[{index}]",
+                "dimensionality": dimensions
+            })
+        except (KeyError, TypeError, UnitValidationError) as exc:
+            errors.append(str(exc))
+
     if errors:
         raise UnitValidationError("; ".join(errors))
     return evidence
