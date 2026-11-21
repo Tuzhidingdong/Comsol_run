@@ -32,7 +32,7 @@ The user's COMSOL installation, license, existing login file and machine-specifi
 - [x] Explicit user-defined conservation-balance evaluator.
 - [x] Mesh/time convergence child-manifest derivation and controller orchestration.
 - [x] Guarded GCI and time-step sensitivity aggregation; GCI requires measured characteristic mesh sizes.
-- [x] Worker/Controller isolation and Windows Job Object process-tree containment.
+- [x] Worker/Controller isolation, Windows Job Object process-tree containment and optional hard Job memory limits.
 - [x] MPh Server/Client COMSOL 6.4 adapter and M0 smoke probe.
 - [x] MPH save/reload structure comparison in M0 and normal task execution.
 - [x] Unit tests and Windows one-click local acceptance launcher.

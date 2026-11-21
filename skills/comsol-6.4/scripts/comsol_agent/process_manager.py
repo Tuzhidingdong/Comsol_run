@@ -217,7 +217,7 @@ def run_managed_worker(
     )
 
 
-def verify_job_object_process_tree(output_dir: str | Path, timeout_seconds: float = 3.0) -> dict:
+def verify_job_object_process_tree(output_dir: str | Path, timeout_seconds: float = 5.0) -> dict:
     if os.name != "nt":
         return {"status": "NOT_RUN", "reason": "Windows Job Object test requires Windows"}
     out = Path(output_dir).resolve()

@@ -23,6 +23,8 @@ At timeout:
 
 A timeout is not a successful cancellation. The final report distinguishes graceful cancellation, hard termination and verified cleanup.
 
+When Manifest metadata.execution_limits.max_memory_gb is set, the Controller applies JOB_OBJECT_LIMIT_JOB_MEMORY to the task Job Object. The limit covers the Worker and owned COMSOL Server process tree. If the operating system terminates the task for exceeding this cap, the Worker result is incomplete and the Controller reports failure rather than numerical success.
+
 ## MPh integration
 
 The implementation pins MPh 1.4.x and uses its public Server and Client classes. MPh dynamically discovers the local COMSOL installation, starts a Server on a selected port and reads its standard output to discover the actual port.

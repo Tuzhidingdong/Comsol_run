@@ -56,7 +56,7 @@ Time-step sensitivity:
 - Profile actions cannot directly invoke Study.solve; the Worker controls solve after all gates pass.
 - A numerical solve is not proof of physical correctness or reproducibility.
 - GCI requires measured physical mesh sizes, not refinement multipliers.
-- On Windows, managed execution fails closed if Job Object containment is unavailable.
+- On Windows, managed execution fails closed if Job Object containment is unavailable. Set metadata.execution_limits.max_memory_gb to enforce a hard per-task Job Object memory ceiling.
 - No login file, credentials, license file, local configuration or generated model/result belongs in Git.
 
 ## Local acceptance evidence
