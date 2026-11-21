@@ -30,16 +30,30 @@ class ManagedProcessResult:
 def _job_process_ids(win32job, job) -> list[int]:
     try:
         info = win32job.QueryInformationJobObject(job, win32job.JobObjectBasicProcessIdList)
-        if isinstance(info, dict):
-            values = info.get("ProcessIdList", [])
-        elif isinstance(info, (tuple, list)):
-            # PyWin32 releases may expose (assigned_count, list_capacity, pids).
-            values = info[-1] if info else []
+    except Exception as exc:
+        raise ProcessContainmentError(f"Unable to query Job Object process IDs: {exc}") from exc
+
+    if isinstance(info, dict):
+        if "ProcessIdList" not in info:
+            raise ProcessContainmentError("Job Object process-ID response is missing ProcessIdList")
+        values = info["ProcessIdList"]
+    elif isinstance(info, (tuple, list)):
+        # PyWin32's documented binding returns a sequence of PID integers.
+        # Accept tuple-wrapped legacy results too, without silently
+        # interpreting a single PID as an iterable.
+        if all(isinstance(pid, int) for pid in info):
+            values = info
+        elif info and isinstance(info[-1], (tuple, list)):
+            values = info[-1]
         else:
-            values = []
+            raise ProcessContainmentError(f"Unrecognized Job Object PID response: {info!r}")
+    else:
+        raise ProcessContainmentError(f"Unrecognized Job Object PID response type: {type(info).__name__}")
+
+    try:
         return [int(pid) for pid in values]
-    except Exception:
-        return []
+    except Exception as exc:
+        raise ProcessContainmentError(f"Invalid PID value in Job Object response: {exc}") from exc
 
 
 def run_managed_worker(
@@ -159,21 +173,27 @@ def run_managed_worker(
         except Exception:
             pass
 
+    tracked_pids = set(pids_in_job)
+    if pid is not None:
+        tracked_pids.add(int(pid))
+    try:
+        import psutil
+    except ImportError as exc:
+        raise ProcessContainmentError(
+            "psutil is required to verify that all owned Worker/Server processes exited"
+        ) from exc
     deadline = time.monotonic() + 5.0
     remaining: list[int] = []
     while True:
-        try:
-            import psutil
-            remaining = [child_pid for child_pid in pids_in_job if psutil.pid_exists(child_pid)]
-        except Exception:
-            remaining = []
+        remaining = sorted(process_id for process_id in tracked_pids if psutil.pid_exists(process_id))
         if not remaining or time.monotonic() >= deadline:
             break
         time.sleep(0.1)
     cleanup_verified = not remaining and exit_code is not None
     details["cleanup_check_method"] = "JobObjectBasicProcessIdList + psutil"
     details["job_object_closed"] = True
-    details["cleanup_verified_for_all_recorded_job_pids"] = cleanup_verified
+    details["tracked_process_ids"] = sorted(tracked_pids)
+    details["cleanup_verified_for_all_tracked_pids"] = cleanup_verified
     return ManagedProcessResult(
         worker_pid=int(pid) if pid else None,
         exit_code=exit_code,
