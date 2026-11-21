@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
@@ -80,7 +81,7 @@ def run_managed_worker(
             "pywin32 is required. Install the project Windows extra; unsafe subprocess fallback is disabled."
         ) from exc
 
-    job = win32job.CreateJobObject(None, None)
+    job = win32job.CreateJobObject(None, f"ComsolAgent-{uuid.uuid4().hex}")
     process_handle = None
     thread_handle = None
     pid = None
