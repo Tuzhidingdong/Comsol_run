@@ -115,7 +115,8 @@ class TaskController:
         managed = run_managed_worker(
             command, cwd=self.repository_root, timeout_seconds=float(limit),
             graceful_cancel_seconds=float(metadata.get("execution_limits", {}).get("graceful_cancel_seconds", 15)),
-            cancel_file=task_dir / "cancel.request"
+            cancel_file=task_dir / "cancel.request",
+            max_memory_gb=metadata.get("execution_limits", {}).get("max_memory_gb")
         )
         worker_result_path = task_dir / "worker_result.json"
         worker_result = json.loads(worker_result_path.read_text(encoding="utf-8")) if worker_result_path.exists() else None
