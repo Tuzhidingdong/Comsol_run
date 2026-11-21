@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import pytest
 
 from comsol_agent.process_manager import _job_process_ids
@@ -33,3 +34,10 @@ def test_job_object_pid_decoder_accepts_legacy_wrapped_sequence():
 def test_job_object_pid_decoder_fails_closed_on_unrecognized_shape():
     with pytest.raises(RuntimeError, match="Unrecognized Job Object PID response"):
         _job_process_ids(FakeWin32Job("unexpected"), object())
+
+
+
+def test_managed_worker_exposes_optional_job_memory_budget():
+    from comsol_agent.process_manager import run_managed_worker
+    parameter = inspect.signature(run_managed_worker).parameters["max_memory_gb"]
+    assert parameter.default is None

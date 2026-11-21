@@ -65,6 +65,7 @@ def run_managed_worker(
     cancel_file: str | Path | None = None,
     env: dict[str, str] | None = None,
     send_ctrl_break: bool = True,
+    max_memory_gb: float | None = None,
 ) -> ManagedProcessResult:
     if os.name != "nt":
         raise ProcessContainmentError("Production managed COMSOL execution requires Windows Job Objects")
@@ -93,6 +94,14 @@ def run_managed_worker(
         limits = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
         basic = limits["BasicLimitInformation"]
         basic["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if max_memory_gb is not None:
+            if float(max_memory_gb) <= 0:
+                raise ProcessContainmentError("max_memory_gb must be positive")
+            memory_limit_bytes = int(float(max_memory_gb) * (1024 ** 3))
+            basic["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_JOB_MEMORY
+            limits["JobMemoryLimit"] = memory_limit_bytes
+            details["job_memory_limit_bytes"] = memory_limit_bytes
+            details["job_memory_limit_gb"] = float(max_memory_gb)
         limits["BasicLimitInformation"] = basic
         win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, limits)
 
