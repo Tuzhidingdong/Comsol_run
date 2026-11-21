@@ -1,6 +1,8 @@
 # Project Status — Comsol_run
 
 > Governing contract: TASK_PLAN.md (Revision 1.2). This file records implementation progress and evidence. It does not override the frozen task plan.
+>
+> Per-criterion status: docs/verification/acceptance-matrix.md
 
 ## Overall status
 

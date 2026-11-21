@@ -65,6 +65,10 @@ Time-step sensitivity:
 
 RUN_ACCEPTANCE.bat writes to runs/acceptance/. It records Python/COMSOL discovery, dependency tests, Windows Job Object descendant cleanup, COMSOL Server connection, licensed modules, MPH save/reload structure and Server shutdown.
 
+## Acceptance tracking
+
+docs/verification/acceptance-matrix.md maps AC-01 through AC-37 to current code/test evidence and identifies the criteria still requiring the actual COMSOL 6.4 installation and license.
+
 ## Authoritative requirements
 
 TASK_PLAN.md Revision 1.2 is the frozen development contract. STATUS.md distinguishes implemented code from evidence still required on the actual COMSOL 6.4 machine.
