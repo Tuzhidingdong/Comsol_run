@@ -9,6 +9,7 @@ import pytest
 from comsol_agent.executor import ExecutionError, ProfileExecutor
 from comsol_agent.manifest import load_and_validate
 from comsol_agent.report import build_execution_report
+from comsol_agent.units import UnitValidationError
 
 
 def make_executor(values):
@@ -65,15 +66,66 @@ def test_zero_scale_and_nan_are_blocking():
         ex.evaluate_conservation_checks()
 
 
+def declarative_manifest_fixture():
+    """A complete, schema-valid Manifest built in memory (no runs/ dependency)."""
+    return {
+        "metadata": {
+            "schema_version": "1.0.0", "comsol_version": "6.4",
+            "mode": "build", "task_id": "fixture-conservation",
+            "profile_id": "fixture-profile",
+        },
+        "parameters": {"k": {"value": 1.0, "unit": "W/(m*K)"}},
+        "geometry": {
+            "component_tag": "comp1", "geometry_tag": "geom1",
+            "dimension": 2, "features": [],
+        },
+        "selections": [],
+        "materials": [],
+        "physics": [],
+        "mesh": {
+            "tag": "mesh1", "component_tag": "comp1",
+            "geometry_tag": "geom1", "profile_id": "fixture-profile",
+        },
+        "study": {
+            "tag": "std1", "profile_id": "fixture-profile",
+            "steps": [{"tag": "stat", "api_type": "Stationary"}],
+        },
+        "outputs": {"quantities": []},
+        "validation": {
+            "required_gates": list("ABCDEFGH"),
+            "conservation_checks": [balance_manifest()],
+        },
+    }
+
+
+def _write_manifest(tmp_path, data, name="manifest.json"):
+    path = tmp_path / name
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def test_manifest_schema_accepts_declarative_terms(tmp_path):
-    # Use the real fixture manifest from the project to exercise schema + units.
-    from pathlib import Path
-    path = Path("runs/acceptance/physical_validation/manifest_conservation_probe.json")
+    # Built in the test's own temporary directory: works in CI where runs/
+    # is gitignored and absent.
+    path = _write_manifest(tmp_path, declarative_manifest_fixture())
     manifest, validation = load_and_validate(path)
     checks = manifest["validation"]["conservation_checks"]
     assert checks[0]["terms"][0]["expected_unit"] == "W/m"
     assert checks[0]["terms"][0]["region"]
     assert validation["valid"] is True
+    # Pint unit validation really ran on the typed parameter, not just schema.
+    assert validation["typed_values_checked"] >= 1
+    assert any(
+        evidence["unit"] == "W/(m*K)" for evidence in validation["unit_evidence"]
+    )
+
+
+def test_manifest_rejects_invalid_conservation_unit(tmp_path):
+    data = declarative_manifest_fixture()
+    data["validation"]["conservation_checks"][0]["terms"][0]["expected_unit"] = "not-a-unit"
+    path = _write_manifest(tmp_path, data, "invalid-unit.json")
+    with pytest.raises(UnitValidationError, match="invalid expected_unit"):
+        load_and_validate(path)
 
 
 def test_report_keeps_four_states_independent(tmp_path):

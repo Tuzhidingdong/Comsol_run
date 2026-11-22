@@ -1,6 +1,8 @@
 """Focused tests for figure export configuration and metadata QC."""
 from __future__ import annotations
 
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
@@ -11,7 +13,33 @@ from comsol_agent.figure_export import (
     SUPPORTED_FORMATS, UNSUPPORTED_FORMATS,
 )
 
-REF = Path("runs/acceptance/figure_export_validation/api_exports")
+def _chunk(kind: bytes, payload: bytes) -> bytes:
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+
+def make_png(path: Path, width: int, height: int, dpi: int) -> Path:
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    ppm = round(dpi / 0.0254)
+    phys = struct.pack(">IIB", ppm, ppm, 1)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"pHYs", phys) + _chunk(b"IEND", b""))
+    return path
+
+
+def make_tiff(path: Path, width: int, height: int, dpi: int) -> Path:
+    header = b"II" + struct.pack("<HI", 42, 8)
+    entries = [
+        (256, 3, 1, width), (257, 3, 1, height), (259, 3, 1, 1),
+        (282, 5, 1, 86), (283, 5, 1, 94), (296, 3, 1, 2),
+    ]
+    ifd = struct.pack("<H", len(entries))
+    for tag, typ, count, value in entries:
+        ifd += struct.pack("<HHI", tag, typ, count) + (struct.pack("<H", value) + b"\x00\x00" if typ == 3 else struct.pack("<I", value))
+    ifd += struct.pack("<I", 0)
+    assert len(ifd) == 78
+    data = header + ifd + struct.pack("<II", dpi, 1) + struct.pack("<II", dpi, 1)
+    path.write_bytes(data)
+    return path
+
 
 
 def test_default_publication_preset():
@@ -51,13 +79,12 @@ def test_pixels_physical_size_consistency():
     assert expected_pixels(cfg) == (1181, 591)
 
 
-@pytest.mark.skipif(not (REF / "native_300.png").is_file(), reason="native export probe not run")
-def test_real_png_metadata_and_qc():
+def test_png_metadata_and_qc(tmp_path):
     cfg = resolve_config({
-        "tag": "f", "filename": "native_300.png", "format": "png", "purpose": "preview",
+        "tag": "f", "filename": "f.png", "format": "png", "purpose": "preview",
         "width_mm": 100, "height_mm": 50, "resolution_dpi": 300,
     })
-    qc = qc_image(REF / "native_300.png", cfg)
+    qc = qc_image(make_png(tmp_path / "f.png", 1181, 591, 300), cfg)
     assert qc["passed"] is True
     assert qc["metadata"]["dpi"] == [300, 300]
     assert qc["metadata"]["width_px"] == 1181
@@ -65,13 +92,12 @@ def test_real_png_metadata_and_qc():
     assert qc["manual_review_required"]
 
 
-@pytest.mark.skipif(not (REF / "native_600.tif").is_file(), reason="native export probe not run")
-def test_real_tiff_compression_and_dpi():
+def test_tiff_compression_and_dpi(tmp_path):
     cfg = resolve_config({
-        "tag": "f", "filename": "native_600.tif", "format": "tiff", "purpose": "publication",
+        "tag": "f", "filename": "f.tif", "format": "tiff", "purpose": "publication",
         "size_preset": "custom", "width_mm": 100, "height_mm": 50, "resolution_dpi": 600,
     })
-    qc = qc_image(REF / "native_600.tif", cfg)
+    qc = qc_image(make_tiff(tmp_path / "f.tif", 2362, 1181, 600), cfg)
     assert qc["passed"] is True
     assert qc["metadata"]["dpi"] == [600, 600]
     assert qc["metadata"]["compression"] == 1
