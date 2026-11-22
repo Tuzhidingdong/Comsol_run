@@ -318,7 +318,10 @@ class ProfileExecutor:
             self.nodes[f"physics:{tag}"] = node
         elif op == "create_physics_feature":
             parent = self._target(args["physics_handle"])
-            node = parent.feature().create(args["tag"], args["api_type"], str(args["entity_dimension"]))
+            # COMSOL 6.4 PhysicsFeatureListClient.create() overloads are
+            # (String, String) and (String, String, int) -- never a String
+            # dimension. Verified against the local 6.4 Server.
+            node = parent.feature().create(args["tag"], args["api_type"], int(args["entity_dimension"]))
             if args.get("selection"):
                 node.selection().named(args["selection"])
             for key, value in args.get("properties", {}).items():

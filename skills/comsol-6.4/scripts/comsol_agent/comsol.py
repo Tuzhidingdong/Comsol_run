@@ -175,6 +175,7 @@ class ComsolSession:
         if model_path.exists():
             raise FileExistsError(f"Refusing to overwrite existing model: {model_path}")
         model = self.client.create("ComsolRunM0Smoke")
+        label_before_save = model.name()
         try:
             model.save(str(model_path))
             if not model_path.is_file() or model_path.stat().st_size == 0:
@@ -183,8 +184,24 @@ class ComsolSession:
             model = self.client.load(str(model_path))
             names = list(self.client.names())
             files = [str(Path(item).resolve()) for item in self.client.files()]
-            if "ComsolRunM0Smoke" not in names:
-                raise ComsolEnvironmentError("Reloaded model is not visible in the COMSOL client model list")
+            # COMSOL 6.4 relabels a model loaded from an MPH file using the
+            # file stem. Verified against a real 6.4 Server: a model created as
+            # "ComsolRunM0Smoke" and saved to "comsol_m0_smoke.mph" is reported
+            # by client.names()/Model.name() as "comsol_m0_smoke" after reload.
+            # Assert the reloaded identity against the file stem rather than
+            # the pre-save label, while still requiring a visible, named model.
+            expected_reload_label = model_path.stem
+            reloaded_label = model.name()
+            if expected_reload_label not in names:
+                raise ComsolEnvironmentError(
+                    f"Reloaded model label {expected_reload_label!r} (from MPH file stem) "
+                    f"is not visible in the COMSOL client model list: {names}"
+                )
+            if reloaded_label != expected_reload_label:
+                raise ComsolEnvironmentError(
+                    f"Reloaded model label {reloaded_label!r} does not match the MPH file stem "
+                    f"{expected_reload_label!r}"
+                )
             if str(model_path) not in files:
                 raise ComsolEnvironmentError("Reloaded model path is not present in the COMSOL client file list")
             modules = list(self.client.modules())
@@ -208,6 +225,8 @@ class ComsolSession:
                 "existing_login_file_preserved": existing_login_preserved,
                 "model_path": str(model_path),
                 "model_size_bytes": model_path.stat().st_size,
+                "model_label_before_save": label_before_save,
+                "model_label_after_reload": reloaded_label,
                 "reloaded_model_names": names,
                 "file_paths_absolute": model_path.is_absolute(),
                 "save_reload_passed": True
