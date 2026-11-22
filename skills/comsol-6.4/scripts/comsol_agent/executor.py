@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .figure_export import FigureExportError, qc_image, resolve_config
 from .io_utils import sha256_file
 from .profiles import load_profile
 from .units import to_comsol_expression
@@ -463,6 +464,39 @@ class ProfileExecutor:
                 errors.append({"target": name, "error": f"{type(exc).__name__}: {exc}"})
         return {"released": released, "errors": errors}
 
+    def rebind_result_handles(self) -> list[str]:
+        """Rebind plot handles after a save/reload replaced the Java model.
+
+        The checkpoint reload verification returns a fresh Model object; Java
+        handles captured during construction are then stale. Result handles are
+        resolved again by tag so image exports can use the reloaded model.
+        """
+        if self.model is None:
+            raise ExecutionError("No active model for handle rebinding")
+        java = self.model.java
+        rebound: list[str] = []
+        for name, node in list(self.nodes.items()):
+            if not name.startswith("plot_group:"):
+                continue
+            tag = name.split(":", 1)[1]
+            try:
+                self.nodes[name] = java.result(tag)
+                rebound.append(name)
+            except Exception:
+                pass
+        for name in list(self.nodes):
+            if not name.startswith("plot_feature:"):
+                continue
+            tag = name.split(":", 1)[1]
+            for group_name in [n for n in self.nodes if n.startswith("plot_group:")]:
+                try:
+                    self.nodes[name] = self.nodes[group_name].feature(tag)
+                    rebound.append(name)
+                    break
+                except Exception:
+                    continue
+        return rebound
+
     def collect_comsol_problems(self) -> list[Any]:
         if self.model is None:
             raise ExecutionError("No active model")
@@ -560,7 +594,13 @@ class ProfileExecutor:
                 writer.writerows(scalar_rows)
         return {"results": results, "results_json": str(results_path)}
 
-    def run_image_exports(self) -> list[dict[str, Any]]:
+    def run_image_exports(self) -> dict[str, Any] | list[dict[str, Any]]:
+        """Run declarative, publication-oriented image exports with metadata QC.
+
+        Each image is independent: a failure is recorded and remaining images
+        still run. The returned report is always written to
+        results/images/figure_export_report.json.
+        """
         if not self.manifest.get("outputs", {}).get("export_images", False):
             return []
         exports = list((self.profile or {}).get("image_exports", []))
@@ -568,26 +608,109 @@ class ProfileExecutor:
             raise ExecutionError("Manifest requests image exports, but the validated profile declares no image_exports")
         image_root = (self.output_dir / "results" / "images").resolve()
         image_root.mkdir(parents=True, exist_ok=True)
-        completed = []
+        entries: list[dict[str, Any]] = []
         for item in exports:
-            tag = str(item["tag"])
-            filename = Path(str(item["filename"]))
-            path = filename.resolve() if filename.is_absolute() else (image_root / filename).resolve()
-            if image_root not in path.parents:
-                raise ExecutionError(f"Image export path escapes its task output directory: {path}")
-            if path.exists():
-                raise ExecutionError(f"Refusing to overwrite image export: {path}")
-            node = self.model.java.result().export().create(tag, str(item.get("api_type", "Image")))
-            node.set("filename", str(path))
-            if item.get("plotgroup"):
-                node.set("plotgroup", str(item["plotgroup"]))
-            for key, value in item.get("properties", {}).items():
-                node.set(key, self._resolve(value))
-            node.run()
-            if not path.is_file() or path.stat().st_size == 0:
-                raise ExecutionError(f"COMSOL image export did not create a non-empty file: {path}")
-            completed.append({"tag": tag, "path": str(path), "size_bytes": path.stat().st_size})
-        return completed
+            entry: dict[str, Any] = {
+                "tag": str(item.get("tag", "figure")), "status": "FAIL",
+            }
+            try:
+                config = resolve_config(item)
+                entry["config"] = config
+                purpose_dir = (image_root / config["purpose"]).resolve()
+                if purpose_dir != image_root and image_root not in purpose_dir.parents:
+                    raise FigureExportError("purpose directory escapes the image output directory")
+                purpose_dir.mkdir(parents=True, exist_ok=True)
+                path = (purpose_dir / config["filename"]).resolve()
+                if purpose_dir not in path.parents:
+                    raise FigureExportError(f"image path escapes its output directory: {path}")
+                if path.exists():
+                    raise FigureExportError(f"refusing to overwrite existing image: {path}")
+
+                pg_ref = config["plotgroup"]
+                if pg_ref and str(pg_ref) in self.nodes:
+                    plot_group = self._target(str(pg_ref))
+                elif pg_ref and f"plot_group:{pg_ref}" in self.nodes:
+                    plot_group = self._target(f"plot_group:{pg_ref}")
+                else:
+                    groups = [v for k, v in self.nodes.items() if k.startswith("plot_group:")]
+                    if not groups:
+                        raise ExecutionError("no plot group is available for image export")
+                    plot_group = groups[0]
+
+                colorbar = config["colorbar"]
+                if isinstance(colorbar, dict):
+                    feature = None
+                    for key, node in self.nodes.items():
+                        if key.startswith("plot_feature:"):
+                            feature = node
+                            break
+                    if feature is not None:
+                        for prop in ("unit", "legendtitle", "legendunit", "colortable"):
+                            if prop in colorbar:
+                                feature.set(prop, str(colorbar[prop]))
+                        color_range = config["color_range"]
+                        if isinstance(color_range, dict):
+                            if "min" in color_range:
+                                feature.set("rangedatamin", float(color_range["min"]))
+                                feature.set("rangedataactive", True)
+                            if "max" in color_range:
+                                feature.set("rangedatamax", float(color_range["max"]))
+                                feature.set("rangedataactive", True)
+
+                node = self.model.java.result().export().create(f"exp_{config['tag']}", "Image")
+                node.set("sourceobject", str(plot_group.tag()))
+                node.set("size", "manualprint")
+                node.set("unit", "mm")
+                node.set("width", float(config["width_mm"]))
+                node.set("height", float(config["height_mm"]))
+                node.set("resolution", float(config["resolution_dpi"]))
+                node.set("imagetype", config["format"])
+                filename_prop = "pngfilename" if config["format"] == "png" else "tifffilename"
+                node.set(filename_prop, str(path))
+                node.set("fontsize", float(config["font_size_pt"]))
+                node.set("title2d", "on" if config["include_title"] else "off")
+                node.set("legend2d", "on" if colorbar else "off")
+                if config["background"] == "white":
+                    node.set("background", "color")
+                    node.set("customcolor", "1, 1, 1")
+                node.set("antialias", "on")
+                for key, value in config["legacy_properties"].items():
+                    node.set(str(key), self._resolve(value))
+                node.run()
+                if not path.is_file() or path.stat().st_size == 0:
+                    raise ExecutionError("COMSOL export produced no non-empty file")
+                qc = qc_image(path, config)
+                entry.update({
+                    "path": str(path), "format": config["format"],
+                    "comsol_export_properties": {
+                        "size": "manualprint", "unit": "mm",
+                        "width_mm": config["width_mm"], "height_mm": config["height_mm"],
+                        "resolution_dpi": config["resolution_dpi"],
+                        "imagetype": config["format"], "fontsize_pt": config["font_size_pt"],
+                        "legend2d": bool(colorbar), "title2d": config["include_title"],
+                    },
+                    "qc": qc,
+                    "status": "PASS" if qc["passed"] else "FAIL",
+                })
+                if not qc["passed"]:
+                    entry["error"] = "; ".join(qc["errors"])
+            except Exception as exc:
+                entry["error"] = f"{type(exc).__name__}: {exc}"
+            entries.append(entry)
+
+        passed = sum(1 for e in entries if e["status"] == "PASS")
+        status = "PASS" if passed == len(entries) else ("PARTIAL" if passed else "FAIL")
+        report = {
+            "schema_version": "1.0.0",
+            "comsol_version": str(self.client.version),
+            "profile_id": (self.profile or {}).get("profile_id"),
+            "manifest_task_id": self.manifest.get("metadata", {}).get("task_id"),
+            "image_exports": entries, "status": status,
+            "manual_review_note": "Font family replacement and text/colorbar overlap require human visual review.",
+        }
+        report_path = (image_root / "figure_export_report.json").resolve()
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        return {"results": entries, "report": report, "report_path": str(report_path), "status": status}
 
     def compare_benchmark(self, results: dict[str, Any]) -> dict[str, Any] | None:
         baseline = self.manifest.get("validation", {}).get("baseline", {})

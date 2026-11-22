@@ -23,6 +23,10 @@ The package uses MPh's public Server and Client APIs. Server owns a local COMSOL
 - Selections: persist semantic definitions and validate dimensions, counts and geometric signatures after geometry finalization.
 - File paths: use normalized absolute paths in all Java API save/export/import calls.
 
+## Figure output
+
+Load `figure_output_standard.md` before any formal image export. It defines the reusable publication presets, verified COMSOL 6.4 export properties, DPI/metadata QC, and the explicit list of unsupported vector formats. Preview PNGs go to `results/images/preview/`, publication TIFFs to `results/images/publication/`, and every export is recorded in `figure_export_report.json`.
+
 ## Profiles
 
 No physics profile is promoted to validated by this initial repository scaffold. Add one only with a COMSOL 6.4 test ID, exact API type/property evidence, test output and scientific benchmark.

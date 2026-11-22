@@ -72,7 +72,12 @@
     {"op": "create_integration_coupling", "args": {"component": "comp1", "tag": "int_cold", "selection": "sel_cold"}},
     {"op": "create_study", "args": {"tag": "std1"}},
     {"op": "create_study_step", "args": {"study_handle": "study:std1", "tag": "stat", "api_type": "Stationary"}},
-    {"op": "create_auto_sequences", "args": {"study_handle": "study:std1"}}
+    {"op": "create_auto_sequences", "args": {"study_handle": "study:std1"}},
+    {"op": "create_plot_group", "args": {"tag": "temp_plot", "api_type": "PlotGroup2D"}},
+    {"op": "create_plot_feature", "args": {
+      "plot_group_handle": "plot_group:temp_plot", "tag": "temp_surface",
+      "api_type": "Surface", "properties": {"expr": "T", "unit": "degC"}
+    }}
   ],
   "gate_probes": [
     {"gate": "A", "name": "geometry-feature-type", "target": "geometry_feature:r1",
@@ -99,6 +104,27 @@
   ],
   "result_evaluations": [],
   "mesh_characteristic_size_result": null,
-  "image_exports": [],
+  "image_exports": [
+    {
+      "tag": "temperature_preview",
+      "filename": "temperature_preview.png",
+      "format": "png", "purpose": "preview",
+      "size_preset": "single_column", "resolution_dpi": 300,
+      "font_family": "Arial", "font_size_pt": 7,
+      "text_color": "black", "background": "white", "include_title": false,
+      "plotgroup": "plot_group:temp_plot",
+      "colorbar": {"unit": "degC", "legendtitle": "Temperature"}
+    },
+    {
+      "tag": "temperature_publication",
+      "filename": "temperature_publication.tif",
+      "format": "tiff", "purpose": "publication",
+      "size_preset": "double_column", "resolution_dpi": 600,
+      "font_family": "Arial", "font_size_pt": 7,
+      "text_color": "black", "background": "white", "include_title": false,
+      "plotgroup": "plot_group:temp_plot",
+      "colorbar": {"unit": "degC", "legendtitle": "Temperature"}
+    }
+  ],
   "physical_validation_probes": []
 }

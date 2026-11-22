@@ -143,6 +143,7 @@ def run_manifest(
         executor.model, pre_solve_reload = _verify_saved_model_reload(
             session.client, executor.model, Path(build["checkpoint"])
         )
+        rebound_handles = executor.rebind_result_handles()
 
         numerical_success = False
         study_execution = None
@@ -226,6 +227,7 @@ def run_manifest(
             "completed_actions": build["completed_actions"],
             "pre_solve_checkpoint": build["checkpoint"],
             "pre_solve_reload": pre_solve_reload,
+            "rebound_result_handles": rebound_handles,
             "source_integrity": source_integrity,
             "pre_solve_gate_report": gate_report,
             "xmesh_cleanup": xmesh_cleanup,
@@ -259,6 +261,7 @@ def run_manifest(
             "completed_actions": build["completed_actions"],
             "pre_solve_checkpoint": build["checkpoint"],
             "pre_solve_reload": pre_solve_reload,
+            "rebound_result_handles": rebound_handles,
             "source_integrity": source_integrity,
             "gate_report": gate_report,
             "pre_solve_comsol_problems": pre_solve_problems,
