@@ -68,7 +68,7 @@ class ProfileExecutor:
         "set_material_property", "create_physics", "create_physics_feature",
         "create_mesh", "create_mesh_feature", "set_mesh_auto_size", "run_mesh",
         "create_study", "create_study_step", "create_auto_sequences",
-        "create_average_coupling",
+        "create_average_coupling", "create_integration_coupling",
         "create_plot_group", "create_plot_feature"
     }
 
@@ -336,6 +336,17 @@ class ProfileExecutor:
             node = m.component(comp).cpl().create(tag, "Average")
             if args.get("selection"):
                 node.selection().named(args["selection"])
+            else:
+                node.selection().all()
+            self.nodes[f"coupling:{tag}"] = node
+        elif op == "create_integration_coupling":
+            # Generic COMSOL Integration component coupling. The selection is
+            # a named geometry selection from the Manifest; the resulting
+            # operator (e.g. int_hot(...)) can be used in conservation terms.
+            comp, tag = args["component"], args["tag"]
+            node = m.component(comp).cpl().create(tag, "Integration")
+            if args.get("selection"):
+                node.selection().named(str(args["selection"]))
             else:
                 node.selection().all()
             self.nodes[f"coupling:{tag}"] = node
@@ -617,22 +628,29 @@ class ProfileExecutor:
             for term in check["terms"]:
                 expression = str(term["expression"])
                 scalar = _plain(self.model.evaluate(expression, term["expected_unit"]))
-                if not isinstance(scalar, (int, float)) or not math.isfinite(float(scalar)):
+                if isinstance(scalar, bool) or not isinstance(scalar, (int, float)) or not math.isfinite(float(scalar)):
                     raise ExecutionError(f"Conservation term {check['name']} returned non-finite/non-scalar data")
                 coefficient = float(term.get("coefficient", 1.0))
                 term_values.append({
                     "expression": expression, "value": float(scalar),
                     "coefficient": coefficient, "signed_value": coefficient * float(scalar),
-                    "unit": term["expected_unit"]
+                    "unit": term["expected_unit"],
+                    "region": term.get("region"), "definition": term.get("definition"),
                 })
             balance = sum(item["signed_value"] for item in term_values)
             scale = sum(abs(item["signed_value"]) for item in term_values)
-            residual = abs(balance) / max(scale, 1e-30)
+            if not math.isfinite(scale) or scale <= 0.0:
+                raise ExecutionError(
+                    f"Conservation check {check['name']!r} has zero or invalid power scale; "
+                    "residual is undefined (do not report PASS)"
+                )
+            residual = abs(balance) / scale
             tolerance = float(check["relative_tolerance"])
             results.append({
                 "name": check["name"], "balance": balance, "scale": scale,
                 "relative_residual": residual, "relative_tolerance": tolerance,
                 "passed": residual <= tolerance, "terms": term_values,
+                "equation": check.get("equation"), "reference": check.get("reference"),
                 "interpretation": "Signs and control-volume terms are supplied by the user-approved Manifest."
             })
         return {"passed": all(item["passed"] for item in results), "checks": results}

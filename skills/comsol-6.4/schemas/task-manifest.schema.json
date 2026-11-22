@@ -210,6 +210,8 @@
             "properties": {
               "name": {"type": "string", "minLength": 1},
               "relative_tolerance": {"type": "number", "minimum": 0},
+              "equation": {"type": "string", "minLength": 1},
+              "reference": {"type": "string", "minLength": 1},
               "terms": {
                 "type": "array",
                 "minItems": 2,
@@ -220,7 +222,9 @@
                   "properties": {
                     "expression": {"type": "string", "minLength": 1},
                     "expected_unit": {"type": "string", "minLength": 1},
-                    "coefficient": {"type": "number"}
+                    "coefficient": {"type": "number"},
+                    "region": {"type": "string", "minLength": 1},
+                    "definition": {"type": "string", "minLength": 1}
                   }
                 }
               }
