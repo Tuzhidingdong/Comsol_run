@@ -100,7 +100,13 @@ def run_m0(output_dir: Path) -> dict[str, Any]:
     return evidence
 
 
-def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
+def run_manifest(
+    manifest_path: Path,
+    output_dir: Path,
+    *,
+    require_validated_profile: bool = True,
+    execution_mode: str = "production",
+) -> dict[str, Any]:
     manifest, validation = load_and_validate(manifest_path)
     session = ComsolSession(
         cores=int(manifest["metadata"].get("execution_limits", {}).get("cores", 1)),
@@ -110,7 +116,10 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
     started = time.time()
     try:
         session.start()
-        executor = ProfileExecutor(session.client, manifest, output_dir)
+        executor = ProfileExecutor(
+            session.client, manifest, output_dir,
+            require_validated_profile=require_validated_profile,
+        )
         build = executor.run()
 
         # Collect all model-dependent live gate evidence before releasing the
@@ -136,6 +145,7 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
         )
 
         numerical_success = False
+        study_execution = None
         physical_validation = None
         reproduction_success = None
         output_evidence = None
@@ -152,7 +162,7 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             if not gate_report["solve_allowed"]:
                 status = "PRE_SOLVE_BLOCKED"
             else:
-                executor.execute_study()
+                study_execution = executor.execute_study()
                 numerical_success = True
                 output_evidence = executor.extract_outputs()
                 image_exports = executor.run_image_exports()
@@ -231,6 +241,8 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             ),
             "solved_model_path": str(solved_model_path) if solved_model_path else None,
             "solved_model_reload": solved_reload,
+            "study_execution": study_execution,
+            "execution_mode": execution_mode,
             "server_pid": session.server_pid,
             "server_port": session.server_port,
             "elapsed_seconds": round(time.time() - started, 3)
@@ -261,6 +273,8 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             ),
             "solved_model_path": str(solved_model_path) if solved_model_path else None,
             "solved_model_reload": solved_reload,
+            "study_execution": study_execution,
+            "execution_mode": execution_mode,
             "server_pid": session.server_pid,
             "evidence": evidence
         }
@@ -376,6 +390,7 @@ def main() -> int:
     parser.add_argument("--m0", action="store_true")
     parser.add_argument("--manifest")
     parser.add_argument("--profile-probe", action="store_true")
+    parser.add_argument("--integration-test", action="store_true")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     out = Path(args.output_dir).resolve()
@@ -404,7 +419,11 @@ def main() -> int:
             )
             write_report(out, report)
         elif args.manifest and not args.profile_probe:
-            result = run_manifest(Path(args.manifest).resolve(), out)
+            result = run_manifest(
+                Path(args.manifest).resolve(), out,
+                require_validated_profile=not args.integration_test,
+                execution_mode="integration_test" if args.integration_test else "production",
+            )
             report = build_execution_report(
                 task_id=result["task_id"], job_id=result["task_id"], output_dir=out,
                 api_success=result.get("api_success", False),

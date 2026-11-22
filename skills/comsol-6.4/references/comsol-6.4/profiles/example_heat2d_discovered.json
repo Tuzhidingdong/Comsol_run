@@ -67,6 +67,7 @@
     }},
     {"op": "create_mesh", "args": {"component": "comp1", "tag": "mesh1", "geometry": "geom1"}},
     {"op": "run_mesh", "args": {"target": "mesh:mesh1"}},
+    {"op": "create_average_coupling", "args": {"component": "comp1", "tag": "aveop1"}},
     {"op": "create_study", "args": {"tag": "std1"}},
     {"op": "create_study_step", "args": {"study_handle": "study:std1", "tag": "stat", "api_type": "Stationary"}},
     {"op": "create_auto_sequences", "args": {"study_handle": "study:std1"}}

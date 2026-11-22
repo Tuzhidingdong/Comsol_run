@@ -42,6 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     profile_probe.add_argument("--output", default="runs/profile-probes")
     profile_probe.add_argument("--timeout", type=int)
 
+    integration = sub.add_parser(
+        "integration-test",
+        help="Run a controlled real solve for a not-yet-validated Profile with bound probe evidence",
+    )
+    integration.add_argument("manifest")
+    integration.add_argument("--output", default="runs/integration-tests")
+    integration.add_argument("--probe-report", required=True)
+    integration.add_argument("--confirm-solve", action="store_true")
+    integration.add_argument("--timeout", type=int)
+
     sub.add_parser("profiles", help="List available COMSOL 6.4 API profiles")
 
     plan = sub.add_parser("convergence-plan", help="Derive independent child Manifests for a convergence audit")
@@ -80,6 +90,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["status"] == "PASS" else 2
         if args.command == "profile-probe":
             result = TaskController().run_profile_probe(args.manifest, args.output, args.timeout)
+            _print(result)
+            return 0 if result["status"] == "PASS" else 2
+        if args.command == "integration-test":
+            result = TaskController().run_integration_test(
+                args.manifest, args.output, args.probe_report,
+                confirm_solve=args.confirm_solve, timeout_seconds=args.timeout,
+            )
             _print(result)
             return 0 if result["status"] == "PASS" else 2
         if args.command == "profiles":

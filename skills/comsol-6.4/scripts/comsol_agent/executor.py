@@ -68,6 +68,7 @@ class ProfileExecutor:
         "set_material_property", "create_physics", "create_physics_feature",
         "create_mesh", "create_mesh_feature", "set_mesh_auto_size", "run_mesh",
         "create_study", "create_study_step", "create_auto_sequences",
+        "create_average_coupling",
         "create_plot_group", "create_plot_feature"
     }
 
@@ -327,6 +328,17 @@ class ProfileExecutor:
             for key, value in args.get("properties", {}).items():
                 node.set(key, value)
             self.nodes[f"physics_feature:{args['tag']}"] = node
+        elif op == "create_average_coupling":
+            # COMSOL "Average" component coupling: a genuine, domain-weighted
+            # average operator (e.g. aveop1(T)) usable as a scalar observable.
+            # Must be created before the Study is solved.
+            comp, tag = args["component"], args["tag"]
+            node = m.component(comp).cpl().create(tag, "Average")
+            if args.get("selection"):
+                node.selection().named(args["selection"])
+            else:
+                node.selection().all()
+            self.nodes[f"coupling:{tag}"] = node
         elif op == "create_mesh":
             comp, tag = args["component"], args["tag"]
             self.nodes[f"mesh:{tag}"] = m.component(comp).mesh().create(tag, args["geometry"])
@@ -445,8 +457,58 @@ class ProfileExecutor:
             raise ExecutionError("No active model")
         return _plain(self.model.problems()) or []
 
-    def execute_study(self) -> None:
-        self.model.solve(self.manifest["study"]["tag"])
+    def resolve_study(self, identifier: str) -> dict[str, str]:
+        """Resolve a Manifest study identifier against the live COMSOL model.
+
+        MPh Model.solve() resolves studies by label, while Manifests carry a
+        COMSOL tag. Both are accepted here; an unknown or ambiguous identifier
+        fails closed instead of silently solving another study.
+        """
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ExecutionError("Study identifier must be a non-empty string")
+        java = self.model.java
+        matches: list[dict[str, str]] = []
+        for tag in [str(t) for t in java.study().tags()]:
+            label = str(java.study(tag).label())
+            if identifier == tag or identifier == label:
+                matches.append({"tag": tag, "label": label})
+        if not matches:
+            available = [{"tag": str(t), "label": str(java.study(t).label())}
+                         for t in java.study().tags()]
+            raise ExecutionError(
+                f"Study {identifier!r} was not found in the COMSOL model; available studies: {available}"
+            )
+        if len(matches) > 1:
+            raise ExecutionError(f"Study identifier {identifier!r} is ambiguous: {matches}")
+        return matches[0]
+
+    def execute_study(self) -> dict[str, Any]:
+        study_cfg = self.manifest.get("study", {})
+        tag = study_cfg.get("tag")
+        label = study_cfg.get("label")
+        if tag and label and tag != label:
+            resolved = self.resolve_study(str(tag))
+            if resolved["label"] != str(label):
+                raise ExecutionError(
+                    f"Study tag {tag!r} resolves to label {resolved['label']!r}, "
+                    f"which does not match Manifest label {label!r}"
+                )
+        identifier = str(tag or label or "")
+        resolved = self.resolve_study(identifier)
+        try:
+            # MPh 1.4 Model.solve() resolves the study by its label.
+            self.model.solve(resolved["label"])
+        except Exception as exc:
+            self.study_execution = {
+                "requested_identifier": identifier, **resolved,
+                "solve_status": "FAILED", "error": f"{type(exc).__name__}: {exc}",
+            }
+            raise
+        self.study_execution = {
+            "requested_identifier": identifier, **resolved,
+            "solve_status": "SOLVED", "mph_call": "Model.solve(label)",
+        }
+        return self.study_execution
 
     def extract_outputs(self) -> dict[str, Any]:
         if self.profile is None or self.model is None:
@@ -460,7 +522,18 @@ class ProfileExecutor:
             unit = item.get("expected_unit")
             raw = self.model.evaluate(expression, unit) if unit else self.model.evaluate(expression)
             value = _plain(raw)
-            results[name] = {"expression": expression, "value": value, "expected_unit": unit}
+            # Reject non-finite data instead of publishing it as a result.
+            scalars = value if isinstance(value, list) else [value]
+            if any(isinstance(v, float) and not math.isfinite(v) for v in scalars):
+                raise ExecutionError(f"Result {name!r} contains a non-finite value")
+            definition = item.get("definition")
+            if definition is not None and not isinstance(definition, dict):
+                raise ExecutionError(f"Result {name!r} has an invalid definition")
+            results[name] = {
+                "expression": expression, "value": value,
+                "expected_unit": unit, "definition": definition,
+                "value_kind": "scalar" if isinstance(value, (int, float)) and not isinstance(value, bool) else "field_array",
+            }
         results_path = (self.output_dir / "results" / "quantities.json").resolve()
         results_path.parent.mkdir(parents=True, exist_ok=True)
         results_path.write_text(json.dumps(results, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
@@ -514,17 +587,23 @@ class ProfileExecutor:
             if name not in results:
                 checks.append({"name": name, "passed": False, "error": "Result not extracted"})
                 continue
-            actual = results[name]["value"]
+            item = results[name]
+            actual = item["value"]
             reference = float(specification["reference_value"])
             tolerance = float(specification["relative_tolerance"])
-            if not isinstance(actual, (int, float)) or not math.isfinite(float(actual)):
-                passed, relative_error = False, None
-            else:
-                relative_error = abs(float(actual) - reference) / max(abs(reference), 1e-30)
-                passed = relative_error <= tolerance
+            if isinstance(actual, bool) or not isinstance(actual, (int, float)) or not math.isfinite(float(actual)):
+                raise ExecutionError(
+                    f"Benchmark {name!r} requires a finite scalar observable; got "
+                    f"{item.get('value_kind', type(actual).__name__)} from {item['expression']!r}. "
+                    "Declare a scalar observable (for example a COMSOL Average coupling expression)."
+                )
+            relative_error = abs(float(actual) - reference) / max(abs(reference), 1e-30)
             checks.append({
                 "name": name, "actual": actual, "reference_value": reference,
-                "relative_error": relative_error, "relative_tolerance": tolerance, "passed": passed
+                "relative_error": relative_error, "relative_tolerance": tolerance,
+                "passed": relative_error <= tolerance,
+                "expression": item["expression"], "definition": item.get("definition"),
+                "expected_unit": item.get("expected_unit"),
             })
         return {"passed": all(check["passed"] for check in checks), "checks": checks}
 
