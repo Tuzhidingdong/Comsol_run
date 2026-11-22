@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from .figure_export import FigureExportError, qc_image, resolve_config
-from .figure_render import FigureRenderError, extract_field_data, render as render_external, visual_qc
 from .io_utils import sha256_file
 from .profiles import load_profile
 from .units import to_comsol_expression
@@ -628,6 +627,9 @@ class ProfileExecutor:
                     raise FigureExportError(f"refusing to overwrite existing image: {path}")
 
                 if config["renderer"] == "external":
+                    # Imported lazily: the renderer is an optional dependency.
+                    from .figure_render import extract_field_data, render as render_external, visual_qc
+
                     data = extract_field_data(
                         self.model, image_root / config["tag"],
                         component=str(config.get("component") or "comp1"),

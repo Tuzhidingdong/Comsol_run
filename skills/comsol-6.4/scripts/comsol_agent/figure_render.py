@@ -25,6 +25,15 @@ class FigureRenderError(RuntimeError):
     pass
 
 
+def arial_available() -> bool:
+    """Whether this machine has a genuine Arial font for the external renderer."""
+    try:
+        require_arial()
+        return True
+    except FigureRenderError:
+        return False
+
+
 def require_arial() -> str:
     """Return the Arial font path, failing instead of silent substitution."""
     try:

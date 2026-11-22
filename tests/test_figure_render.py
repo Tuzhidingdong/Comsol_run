@@ -4,7 +4,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from comsol_agent.figure_render import FigureRenderError, render, require_arial, visual_qc
+from comsol_agent.figure_render import FigureRenderError, arial_available, render, require_arial, visual_qc
+
+pytestmark = pytest.mark.skipif(
+    not arial_available(), reason="Arial font is required for the publication renderer"
+)
 
 
 def synthetic_data():
