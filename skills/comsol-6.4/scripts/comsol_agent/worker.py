@@ -116,6 +116,8 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
         # Collect all model-dependent live gate evidence before releasing the
         # original Java handles during the checkpoint reload test.
         live_evidence = executor.collect_live_gate_evidence()
+        release_xmesh = getattr(executor, "release_xmesh_info", None)
+        xmesh_cleanup = release_xmesh() if callable(release_xmesh) else {"released": [], "errors": []}
         pre_solve_problems = executor.collect_comsol_problems()
         pre_solve_problem_diagnostics = classify_problem_records(pre_solve_problems)
         diagnostics_check = {
@@ -216,6 +218,7 @@ def run_manifest(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             "pre_solve_reload": pre_solve_reload,
             "source_integrity": source_integrity,
             "pre_solve_gate_report": gate_report,
+            "xmesh_cleanup": xmesh_cleanup,
             "pre_solve_comsol_problems": pre_solve_problems,
             "pre_solve_problem_diagnostics": pre_solve_problem_diagnostics,
             "output_evidence": output_evidence,
@@ -293,6 +296,8 @@ def run_profile_probe(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
 
         # Capture live evidence before releasing the current model handle.
         live_evidence = executor.collect_live_gate_evidence()
+        release_xmesh = getattr(executor, "release_xmesh_info", None)
+        xmesh_cleanup = release_xmesh() if callable(release_xmesh) else {"released": [], "errors": []}
         problems = executor.collect_comsol_problems()
         live_evidence.setdefault("E", {"checks": []})["checks"].append({
             "name": "COMSOL model diagnostics are empty",
@@ -330,6 +335,7 @@ def run_profile_probe(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             "save_reload": reload_evidence,
             "live_gate_evidence": live_evidence,
             "gate_report": gate_report,
+            "xmesh_cleanup": xmesh_cleanup,
             "comsol_problems": problems,
             "server_pid": session.server_pid,
             "server_port": session.server_port,

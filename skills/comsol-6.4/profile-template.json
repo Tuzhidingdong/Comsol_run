@@ -35,7 +35,7 @@
     {
       "gate": "H",
       "name": "solver-dof-count",
-      "target": "solver:generated-solver-tag",
+      "target": "solver_feature:<solver-tag>/<study-step-feature-tag>",
       "method_chain": [{"method": "xmeshInfo"}, {"method": "nDofs"}],
       "operator": "lte",
       "expected_ref": "metadata.execution_limits.max_dofs"

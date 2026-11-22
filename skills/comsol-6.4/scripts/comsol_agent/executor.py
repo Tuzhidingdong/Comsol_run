@@ -351,7 +351,17 @@ class ProfileExecutor:
             study.createAutoSequences("all")
             self.solver_sequence_created = True
             for solver_tag in list(m.sol().tags()):
-                self.nodes[f"solver:{solver_tag}"] = m.sol(solver_tag)
+                solver = m.sol(solver_tag)
+                self.nodes[f"solver:{solver_tag}"] = solver
+                # Gate H must probe DOF on the generated Study Step solver
+                # feature, not on the solver sequence itself. Verified on
+                # COMSOL 6.4: only "StudyStep" and "Variables" features
+                # support xmeshInfo() before a solution exists.
+                try:
+                    for feature_tag in list(solver.feature().tags()):
+                        self.nodes[f"solver_feature:{solver_tag}/{feature_tag}"] = solver.feature(feature_tag)
+                except Exception:
+                    pass
         elif op == "create_plot_group":
             tag = args["tag"]
             node = m.result().create(tag, args["api_type"])
@@ -407,6 +417,28 @@ class ProfileExecutor:
                 }
             grouped.setdefault(gate, []).append(check)
         return {gate: {"checks": checks} for gate, checks in grouped.items()}
+
+    def release_xmesh_info(self) -> dict[str, Any]:
+        """Release extended-mesh data created by XmeshInfo DOF probes.
+
+        COMSOL documents SolverFeature.clearXmesh() as the way to release the
+        memory allocated by xmeshInfo(). Only solver-feature handles bound by
+        create_auto_sequences are touched; no solve or model modification.
+        """
+        released: list[str] = []
+        errors: list[dict[str, str]] = []
+        for name, node in list(self.nodes.items()):
+            if not name.startswith("solver_feature:"):
+                continue
+            clear = getattr(node, "clearXmesh", None)
+            if not callable(clear):
+                continue
+            try:
+                clear()
+                released.append(name)
+            except Exception as exc:
+                errors.append({"target": name, "error": f"{type(exc).__name__}: {exc}"})
+        return {"released": released, "errors": errors}
 
     def collect_comsol_problems(self) -> list[Any]:
         if self.model is None:

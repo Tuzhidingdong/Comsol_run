@@ -1,0 +1,101 @@
+{
+  "profile_id": "example_heat2d_discovered",
+  "comsol_version": "6.4",
+  "description": "Minimal 2-D steady heat-conduction plate example. DISCOVERED ONLY - not production validated. Built from API calls proven in this session's one-shot benchmark.",
+  "required_modules": ["Heat Transfer"],
+  "verification": {
+    "state": "discovered",
+    "test_id": null,
+    "evidence_files": [],
+    "limitations": [
+      "Not production-validated; profile-probe only.",
+      "Uses coordinate Box selections proven on the local COMSOL 6.4 installation.",
+      "Gate H DOF is read from the generated Study Step solver feature (sol1/st1) via XmeshInfo.nDofs(); verified on local COMSOL 6.4 without a solve. Still DISCOVERED, not production-validated."
+    ]
+  },
+  "actions": [
+    {"op": "set_parameter", "args": {"name": "L", "value": {"parameter_ref": "L"}}},
+    {"op": "set_parameter", "args": {"name": "H", "value": {"parameter_ref": "H"}}},
+    {"op": "set_parameter", "args": {"name": "Th", "value": {"parameter_ref": "Th"}}},
+    {"op": "set_parameter", "args": {"name": "Tc", "value": {"parameter_ref": "Tc"}}},
+    {"op": "create_component", "args": {"tag": "comp1", "create_geometry": true}},
+    {"op": "create_geometry", "args": {"component": "comp1", "tag": "geom1", "dimension": 2}},
+    {"op": "create_geometry_feature", "args": {
+      "geometry_handle": "geometry:comp1/geom1", "tag": "r1", "api_type": "Rectangle",
+      "properties": {"size": ["L", "H"], "pos": ["0", "0"]}
+    }},
+    {"op": "run_geometry", "args": {"target": "geometry:comp1/geom1"}},
+    {"op": "create_selection", "args": {
+      "component": "comp1", "tag": "sel_dom", "selection_type": "Box",
+      "geometry": "geom1", "entity_dimension": 2,
+      "properties": {"xmin": 0.0, "xmax": 0.1, "ymin": 0.0, "ymax": 0.05}
+    }},
+    {"op": "create_selection", "args": {
+      "component": "comp1", "tag": "sel_hot", "selection_type": "Box",
+      "geometry": "geom1", "entity_dimension": 1,
+      "properties": {"xmin": 0.0, "xmax": 0.0, "ymin": 0.001, "ymax": 0.049}
+    }},
+    {"op": "create_selection", "args": {
+      "component": "comp1", "tag": "sel_cold", "selection_type": "Box",
+      "geometry": "geom1", "entity_dimension": 1,
+      "properties": {"xmin": 0.099, "xmax": 0.101, "ymin": 0.001, "ymax": 0.049}
+    }},
+    {"op": "create_material", "args": {
+      "component": "comp1", "tag": "mat1", "material_type": "Common", "selection": "sel_dom"
+    }},
+    {"op": "set_material_property", "args": {
+      "target": "material:mat1", "group": "def", "property": "thermalconductivity",
+      "value": {"manifest_ref": "materials.0.properties.thermalconductivity"}
+    }},
+    {"op": "set_material_property", "args": {
+      "target": "material:mat1", "group": "def", "property": "k",
+      "value": {"manifest_ref": "materials.0.properties.thermalconductivity"}
+    }},
+    {"op": "create_physics", "args": {
+      "component": "comp1", "tag": "ht", "api_type": "HeatTransfer",
+      "geometry": "geom1", "selection": "sel_dom"
+    }},
+    {"op": "create_physics_feature", "args": {
+      "physics_handle": "physics:ht", "tag": "T1", "api_type": "TemperatureBoundary",
+      "entity_dimension": 1, "selection": "sel_hot",
+      "properties": {"T0": {"parameter_ref": "Th"}}
+    }},
+    {"op": "create_physics_feature", "args": {
+      "physics_handle": "physics:ht", "tag": "T2", "api_type": "TemperatureBoundary",
+      "entity_dimension": 1, "selection": "sel_cold",
+      "properties": {"T0": {"parameter_ref": "Tc"}}
+    }},
+    {"op": "create_mesh", "args": {"component": "comp1", "tag": "mesh1", "geometry": "geom1"}},
+    {"op": "run_mesh", "args": {"target": "mesh:mesh1"}},
+    {"op": "create_study", "args": {"tag": "std1"}},
+    {"op": "create_study_step", "args": {"study_handle": "study:std1", "tag": "stat", "api_type": "Stationary"}},
+    {"op": "create_auto_sequences", "args": {"study_handle": "study:std1"}}
+  ],
+  "gate_probes": [
+    {"gate": "A", "name": "geometry-feature-type", "target": "geometry_feature:r1",
+     "method_chain": [{"method": "getType"}], "operator": "equals", "expected": "Rectangle"},
+    {"gate": "A", "name": "geometry-entity-counts", "target": "geometry:comp1/geom1",
+     "method_chain": [{"method": "getNEntities"}], "operator": "non_empty"},
+    {"gate": "B", "name": "hot-selection-type", "target": "selection:sel_hot",
+     "method_chain": [{"method": "getType"}], "operator": "equals", "expected": "Box"},
+    {"gate": "B", "name": "cold-selection-type", "target": "selection:sel_cold",
+     "method_chain": [{"method": "getType"}], "operator": "equals", "expected": "Box"},
+    {"gate": "C", "name": "material-type", "target": "material:mat1",
+     "method_chain": [{"method": "getType"}], "operator": "equals", "expected": "Common"},
+    {"gate": "D", "name": "heat-transfer-module-licensed", "target": "client",
+     "method_chain": [{"method": "hasProduct", "args": ["HEATTRANSFER"]}], "operator": "is_true"},
+    {"gate": "F", "name": "solver-sequence-exists", "target": "solver:sol1",
+     "method_chain": [{"method": "getType"}], "operator": "non_empty"},
+    {"gate": "G", "name": "mesh-element-count", "target": "mesh:mesh1",
+     "method_chain": [{"method": "getNumElem"}], "operator": "positive"},
+    {"gate": "G", "name": "minimum-mesh-quality", "target": "mesh:mesh1",
+     "method_chain": [{"method": "getMinQuality"}], "operator": "positive"},
+    {"gate": "H", "name": "solver-dof-count", "target": "solver_feature:sol1/st1",
+     "method_chain": [{"method": "xmeshInfo"}, {"method": "nDofs"}],
+     "operator": "lte", "expected_ref": "metadata.execution_limits.max_dofs"}
+  ],
+  "result_evaluations": [],
+  "mesh_characteristic_size_result": null,
+  "image_exports": [],
+  "physical_validation_probes": []
+}

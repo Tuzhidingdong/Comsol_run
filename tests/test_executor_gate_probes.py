@@ -75,6 +75,80 @@ def test_gate_expected_reference_uses_manifest_values():
     assert evidence["H"]["checks"][0]["expected"] == 1000
 
 
+class FakeDofFeature:
+    def __init__(self):
+        self.clear_count = 0
+
+    def xmeshInfo(self):
+        return self
+
+    def nDofs(self):
+        return 763
+
+    def fieldNames(self):
+        return ["comp1.T"]
+
+    def fieldNDofs(self):
+        return [763]
+
+    def clearXmesh(self):
+        self.clear_count += 1
+
+
+def make_solver_executor():
+    feature = FakeDofFeature()
+
+    class Study:
+        def createAutoSequences(self, value):
+            assert value == "all"
+
+    class SolverList:
+        def tags(self):
+            return ["sol1"]
+
+    class Solver:
+        def feature(self, tag=None):
+            if tag is None:
+                return SimpleNamespace(tags=lambda: ["st1", "v1"])
+            assert tag == "st1"
+            return feature
+
+    class JavaModel:
+        def sol(self, tag=None):
+            return Solver() if tag else SolverList()
+
+    model = SimpleNamespace(java=JavaModel())
+    executor = ProfileExecutor(client=SimpleNamespace(java=object()), manifest={
+        "metadata": {"execution_limits": {"max_dofs": 1000}}
+    }, output_dir=".")
+    executor.model = model
+    executor.nodes = {"study:std1": Study()}
+    return executor, feature
+
+
+def test_auto_sequences_bind_study_step_feature_for_gate_h():
+    executor, feature = make_solver_executor()
+    executor._execute("create_auto_sequences", {"study_handle": "study:std1"})
+    assert "solver:sol1" in executor.nodes
+    assert "solver_feature:sol1/st1" in executor.nodes
+
+    executor.profile = {"gate_probes": [{
+        "gate": "H", "name": "dof-budget", "target": "solver_feature:sol1/st1",
+        "method_chain": [{"method": "xmeshInfo"}, {"method": "nDofs"}],
+        "operator": "lte", "expected_ref": "metadata.execution_limits.max_dofs"
+    }]}
+    evidence = executor.collect_live_gate_evidence()
+    check = evidence["H"]["checks"][0]
+    assert check["passed"] is True
+    assert check["actual"] == 763
+    assert check["expected"] == 1000
+
+    cleanup = executor.release_xmesh_info()
+    assert "solver_feature:sol1/st1" in cleanup["released"]
+    assert cleanup["errors"] == []
+    assert feature.clear_count == 1
+
+
 def test_missing_live_gate_probes_block_solve():
     from comsol_agent.gates import evaluate_pre_solve_gates
     required = list("ABCDEFGH")
