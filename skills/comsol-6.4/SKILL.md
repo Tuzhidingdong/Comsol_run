@@ -57,7 +57,7 @@ On Windows, managed runs require Job Object process containment. If it is unavai
 - Normalize every path passed to COMSOL to an absolute path.
 - Generate the default solver sequence before custom solver configuration.
 - Compile Equations/DOF inspection is a separate pre-solve operation and may itself consume resources.
-- Every formal figure export must load and follow `references/comsol-6.4/figure_output_standard.md`: native COMSOL 300 dpi PNG preview / 600 dpi lossless TIFF publication export, explicit physical canvas, 7 pt Arial-configured text, declared colour bar, and a per-export `figure_export_report.json` with real metadata QC and SHA-256. PDF/SVG are NOT_SUPPORTED by the verified COMSOL 6.4 client API and must be reported as such; never relabel a PNG as a higher-DPI TIFF.
+- Every formal figure export must load and follow `references/comsol-6.4/figure_output_standard.md`. Native COMSOL headless Image export does not render the colour bar/ticks/text in this installation, so formal figures use the deterministic external renderer: real COMSOL x/y/T nodes + mesh triangles, Agg Matplotlib, 7 pt Arial, visible colour bar/ticks/axis units, 300 dpi PNG and 600 dpi lossless TIFF, with per-export `figure_export_report.json` containing metadata and pixel-level visual QC. Native export is reported separately and is not marked visual-QC PASS. PDF/SVG are NOT_SUPPORTED by the verified COMSOL 6.4 client API; never relabel a PNG as a higher-DPI TIFF.
 - A solver that converged is not automatically physically validated.
 - Do not tune physical inputs to force agreement with a target.
 

@@ -25,7 +25,7 @@ The package uses MPh's public Server and Client APIs. Server owns a local COMSOL
 
 ## Figure output
 
-Load `figure_output_standard.md` before any formal image export. It defines the reusable publication presets, verified COMSOL 6.4 export properties, DPI/metadata QC, and the explicit list of unsupported vector formats. Preview PNGs go to `results/images/preview/`, publication TIFFs to `results/images/publication/`, and every export is recorded in `figure_export_report.json`.
+Load `figure_output_standard.md` before any formal image export. Native COMSOL headless export fails visual QC here; formal figures use the deterministic external renderer driven by real COMSOL solution nodes and mesh triangles (`figure_render.py`), with pixel-level checks for colour bar, ticks, labels and units. Presets, DPI/metadata QC and unsupported vector formats are documented there. Preview PNGs go to `results/images/preview/`, publication TIFFs to `results/images/publication/`, and every export is recorded in `figure_export_report.json`.
 
 ## Profiles
 

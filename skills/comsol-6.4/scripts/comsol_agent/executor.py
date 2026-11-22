@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .figure_export import FigureExportError, qc_image, resolve_config
+from .figure_render import FigureRenderError, extract_field_data, render as render_external, visual_qc
 from .io_utils import sha256_file
 from .profiles import load_profile
 from .units import to_comsol_expression
@@ -625,6 +626,53 @@ class ProfileExecutor:
                     raise FigureExportError(f"image path escapes its output directory: {path}")
                 if path.exists():
                     raise FigureExportError(f"refusing to overwrite existing image: {path}")
+
+                if config["renderer"] == "external":
+                    data = extract_field_data(
+                        self.model, image_root / config["tag"],
+                        component=str(config.get("component") or "comp1"),
+                        mesh_tag=str(config.get("mesh") or "mesh1"),
+                        variable=str(config.get("variable") or "T"),
+                        unit=str(config.get("unit") or "degC"),
+                        tag=f"field_{config['tag']}",
+                    )
+                    # Labels are derived from COMSOL metadata when not declared.
+                    render_config = dict(config)
+                    render_config["x_label"] = config["x_label"] or f"x ({data['length_unit']})"
+                    render_config["y_label"] = config["y_label"] or f"y ({data['length_unit']})"
+                    render_config["colorbar_label"] = config["colorbar_label"] or (
+                        f"{data['variable']} ({data['unit']})"
+                    )
+                    evidence = render_external(data, render_config, path)
+                    metadata_qc = qc_image(path, config)
+                    visual = visual_qc(path, evidence, render_config)
+                    passed = bool(metadata_qc["passed"] and visual["passed"])
+                    entry.update({
+                        "path": str(path), "format": config["format"],
+                        "renderer": "matplotlib_agg_external",
+                        "source_field": {
+                            "variable": data["variable"], "unit": data["unit"],
+                            "mesh_nodes": data["node_count"], "mesh_elements": data["element_count"],
+                            "field_range": data["field_range"],
+                            "data_file": data["data_file"],
+                            "mapping": "COMSOL Data export nodes matched to mesh vertices by coordinates; "
+                                       "linear triangular finite-element interpolation on real mesh",
+                        },
+                        "render_evidence": evidence,
+                        "qc": {
+                            "metadata": metadata_qc, "visual": visual,
+                            "passed": passed,
+                            "errors": (
+                                metadata_qc["errors"]
+                                + [k for k, v in visual["checks"].items() if not v]
+                            ),
+                        },
+                        "status": "PASS" if passed else "FAIL",
+                    })
+                    if not passed:
+                        entry["error"] = "; ".join(entry["qc"]["errors"])
+                    entries.append(entry)
+                    continue
 
                 pg_ref = config["plotgroup"]
                 if pg_ref and str(pg_ref) in self.nodes:

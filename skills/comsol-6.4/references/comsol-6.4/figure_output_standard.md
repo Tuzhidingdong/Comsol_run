@@ -24,7 +24,8 @@ Evidence: `runs/acceptance/figure_export_validation/export_api_reflection.json`,
 | TIFF compression | Tag 259 = 1 (uncompressed / lossless). |
 | PDF / SVG / EPS | `result().export().create(tag, "PDF"|"SVG"|"EPS")` rejected with `FlException: operation cannot be created in this context`. **Vector export is NOT_SUPPORTED** by this COMSOL 6.4 client API. `epsfilename` exists in Image properties but `imagetype` has no `eps`. |
 | Font family | No `fontfamily` property found on export node or plot group; `fontsize` is available. Arial cannot be enforced through the verified API. The configured value is recorded and a manual font check is required. |
-| Colour bar | `legend2d` on export; `unit`, `legendtitle`, `legendunit`, `colortable`, `rangedatamin/max` on the Surface feature. Configuration is applied and recorded, but headless export in this installation did **not** render a visible colour bar; colour-bar visibility is a manual-review item, not an automatic QC pass. |
+| Colour bar / text in native export | `legend2d` on export and legend properties on the Surface feature were set and recorded, but repeated headless exports in this installation produced images **without** a visible colour bar, tick labels or axis text. Native COMSOL Image export therefore **fails visual QC** and must not be delivered as a publication figure. |
+| External renderer (default) | `figure_render.py` exports true COMSOL `x,y,T` nodes via a Data export, reads the actual triangular mesh connectivity, maps field values to mesh vertices by coordinates, and draws a Gouraud-shaded FEM field with Matplotlib `Agg`. It renders a viridis colour bar with ticks, axis labels/units and 7 pt Arial text. This is the required path for formal figures. |
 
 ## 3. Output presets
 
@@ -65,4 +66,4 @@ All outputs are written under `results/images/preview/` and `results/images/publ
 
 ## 6. QC and honesty
 
-Automatic QC verifies signature, decode, pixel size, DPI, physical size consistency, TIFF lossless compression and SHA-256. It **cannot** verify font family replacement or text/colour-bar overlap from file bytes; these are reported as `manual_review_required`. A failed image does not discard successful siblings: report status is `PARTIAL`. Unsupported formats fail explicitly, never silently.
+Automatic QC verifies signature, decode, pixel size (±1 px rounding), DPI, physical size consistency, TIFF lossless compression, SHA-256, **and rendered pixels**. For the external renderer the QC checks the actual image: critical axis/colour-bar labels have dark pixels, at least six tick labels are rendered, no text bounding box is clipped, a colour-bar gradient column exists, and field colours are present. Native COMSOL export is reported separately and does not pass visual QC. A failed image does not discard successful siblings: report status is `PARTIAL`. Unsupported formats fail explicitly, never silently. Re-render without solving: `python -m comsol_agent.cli render-figures <solved.mph> --profile <profile> --output <dir>`.

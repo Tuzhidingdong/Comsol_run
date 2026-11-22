@@ -42,6 +42,15 @@ def make_tiff(path: Path, width: int, height: int, dpi: int) -> Path:
 
 
 
+def test_renderer_selection():
+    default = resolve_config({"tag": "fig", "filename": "fig.png", "format": "png"})
+    assert default["renderer"] == "external"
+    assert resolve_config({"tag": "fig", "filename": "fig.png", "format": "png",
+                           "renderer": "native"})["renderer"] == "native"
+    with pytest.raises(FigureExportError, match="renderer"):
+        resolve_config({"tag": "fig", "filename": "fig.png", "format": "png", "renderer": "magic"})
+
+
 def test_default_publication_preset():
     cfg = resolve_config({"tag": "fig", "filename": "fig.tif", "format": "tiff", "purpose": "publication"})
     assert cfg["size_preset"] == "single_column"
@@ -142,9 +151,10 @@ def test_partial_failure_keeps_successful_exports(tmp_path, monkeypatch):
         output_dir=tmp_path,
     )
     ex.profile = {"profile_id": "p", "image_exports": [
-        {"tag": "ok", "filename": "ok.png", "format": "png", "purpose": "preview", "plotgroup": "plot_group:g"},
+        {"tag": "ok", "filename": "ok.png", "format": "png", "purpose": "preview",
+         "renderer": "native", "plotgroup": "plot_group:g"},
         {"tag": "bad", "filename": "bad.png", "format": "png", "purpose": "preview",
-         "size_preset": "custom", "plotgroup": "plot_group:g"},
+         "renderer": "native", "size_preset": "custom", "plotgroup": "plot_group:g"},
     ]}
     ex.nodes = {"plot_group:g": PlotGroup()}
     ex.model = Model()

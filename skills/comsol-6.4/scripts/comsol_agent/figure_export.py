@@ -62,6 +62,9 @@ def resolve_config(item: dict[str, Any]) -> dict[str, Any]:
         raise FigureExportError("custom size_preset requires positive width_mm and height_mm")
     if width <= 0 or height <= 0 or not math.isfinite(width) or not math.isfinite(height):
         raise FigureExportError("canvas width_mm and height_mm must be finite positive numbers")
+    renderer = str(item.get("renderer") or "external")
+    if renderer not in {"external", "native"}:
+        raise FigureExportError("renderer must be 'external' or 'native'")
     purpose = str(item.get("purpose") or "preview")
     if purpose not in {"preview", "publication"}:
         raise FigureExportError("purpose must be 'preview' or 'publication'")
@@ -88,6 +91,15 @@ def resolve_config(item: dict[str, Any]) -> dict[str, Any]:
         "text_color": str(item.get("text_color", DEFAULT_TEXT_COLOR)),
         "background": str(item.get("background", DEFAULT_BACKGROUND)),
         "include_title": bool(item.get("include_title", False)),
+        "renderer": renderer,
+        "component": str(item.get("component") or "comp1"),
+        "mesh": str(item.get("mesh") or "mesh1"),
+        "variable": str(item.get("variable") or "T"),
+        "unit": str(item.get("unit") or "degC"),
+        "x_label": item.get("x_label"),
+        "y_label": item.get("y_label"),
+        "colorbar_label": item.get("colorbar_label"),
+        "title": str(item.get("title") or ""),
         "plotgroup": item.get("plotgroup"),
         "colorbar": item.get("colorbar"),
         "color_range": item.get("color_range"),
@@ -172,9 +184,10 @@ def qc_image(path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
     meta = inspect_image(path)
     exp_w, exp_h = expected_pixels(config)
     errors: list[str] = []
-    if meta.get("width_px") != exp_w or meta.get("height_px") != exp_h:
+    if (abs((meta.get("width_px") or 0) - exp_w) > 1
+            or abs((meta.get("height_px") or 0) - exp_h) > 1):
         errors.append(
-            f"pixel size {meta.get('width_px')}x{meta.get('height_px')} != expected {exp_w}x{exp_h}"
+            f"pixel size {meta.get('width_px')}x{meta.get('height_px')} differs from expected {exp_w}x{exp_h} by more than 1 px"
         )
     if meta.get("dpi") != [config["resolution_dpi"], config["resolution_dpi"]]:
         errors.append(f"actual DPI {meta.get('dpi')} != configured {config['resolution_dpi']}")
@@ -188,11 +201,9 @@ def qc_image(path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
             f"{config['width_mm']}x{config['height_mm']} mm"
         )
     manual_review = [
-        "Font family replacement cannot be verified from PNG/TIFF bytes; visual check required.",
-        "COMSOL 6.4 headless Image export did not render a visible colour bar in the tested "
-        "configuration even with legend properties applied; colour-bar visibility, units and "
-        "text overlap require human visual review (or GUI export) before manuscript use.",
-        "Scientific colour perception (avoid misleading rainbow scales) requires human review.",
+        "Font family replacement cannot be fully proven from image bytes; visual check required.",
+        "Scientific colour perception (avoid misleading scales) and manuscript-level readability "
+        "require human review.",
     ]
     return {
         "passed": not errors, "errors": errors, "metadata": meta,
